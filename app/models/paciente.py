@@ -1,7 +1,7 @@
 from datetime import date
 
-from sqlalchemy import Date, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Date, ForeignKey, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.connection import Base
 
@@ -14,6 +14,12 @@ class Paciente(Base):
         autoincrement=True
     )
 
+    usuario_id_FK: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id_PK"),
+        unique=True,
+        nullable=True
+    )
+
     nombre: Mapped[str] = mapped_column(
         String(150),
         nullable=False
@@ -24,7 +30,9 @@ class Paciente(Base):
         nullable=False
     )
 
-    fecha_nacimiento: Mapped[date | None] = mapped_column(Date)
+    fecha_nacimiento: Mapped[date | None] = mapped_column(
+        Date
+    )
 
     genero: Mapped[str | None] = mapped_column(
         String(20)
@@ -45,3 +53,5 @@ class Paciente(Base):
     estado: Mapped[str | None] = mapped_column(
         String(50)
     )
+
+    usuario = relationship("Usuario")

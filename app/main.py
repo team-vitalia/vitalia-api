@@ -7,6 +7,10 @@ from app.database.connection import get_db
 from app.routers.auth import router as auth_router
 from app.routers.roles import router as roles_router
 from app.routers.usuarios import router as usuarios_router
+from app.routers.pacientes import router as pacientes_router
+from app.routers.citas import router as citas_router
+from app.routers.doctores import router as doctores_router
+from app.routers.especialidades import router as especialidades_router
 from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
 
@@ -32,6 +36,10 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(roles_router)
 app.include_router(usuarios_router)
+app.include_router(pacientes_router)
+app.include_router(citas_router)
+app.include_router(doctores_router)
+app.include_router(especialidades_router)
 
 
 @app.get("/")
