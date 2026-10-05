@@ -1,0 +1,50 @@
+name: CI Backend (FastAPI + MySQL)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+
+    # Contenedor de MySQL local para las pruebas
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes" # Configura root sin contraseña
+          MYSQL_DATABASE: vitalia
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ejecutar migraciones y pruebas (pytest)
+        env:
+          # Cadena de conexión sin contraseña para el usuario root
+          DATABASE_URL: "mysql+pymysql://root@127.0.0.1:3306/vitalia"
+          SECRET_KEY: "tu_clave_secreta_de_pruebas"
+        run: |
+          alembic upgrade head
+          pytest
