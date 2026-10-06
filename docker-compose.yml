@@ -1,0 +1,172 @@
+# ============================================================
+# INFRAESTRUCTURA COMO CÓDIGO (IaC)
+# Proyecto: VITALIA - Sistema Médico
+#
+# HERRAMIENTA: Docker Compose
+#
+# IMPORTANTE:
+# Esta configuración se encuentra PREPARADA, pero actualmente
+# NO se está ejecutando.
+#
+# Este archivo NO modifica:
+# - FastAPI
+# - MySQL instalado actualmente
+# - Alembic
+# - Variables de entorno
+# - React / Expo
+# - La estructura actual del proyecto
+#
+# Mientras no se ejecute:
+#
+#     docker compose up
+#
+# Docker no utilizará esta configuración.
+#
+# El sistema continuará funcionando de la forma habitual.
+# ============================================================
+
+
+services:
+
+  # ==========================================================
+  # BACKEND - FASTAPI
+  # ==========================================================
+  #
+  # Este servicio está preparado para contenerizar la API
+  # desarrollada con FastAPI.
+  #
+  # Actualmente NO se ejecuta.
+  #
+  # Cuando se implemente posteriormente, se agregará un
+  # Dockerfile para construir el entorno de FastAPI.
+  # ==========================================================
+
+  backend:
+
+    # Carpeta actual del proyecto.
+    # Se utilizará posteriormente para construir el contenedor.
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    # Nombre que tendrá el contenedor.
+    container_name: vitalia_api
+
+    # Puerto de FastAPI.
+    #
+    # 8000 en la computadora → 8000 dentro del contenedor.
+    ports:
+      - "8000:8000"
+
+    # Utiliza las variables de entorno del archivo .env
+    # cuando Docker Compose sea implementado.
+    env_file:
+      - .env
+
+    # FastAPI dependerá de MySQL.
+    #
+    # Esto solamente tendrá efecto cuando Docker Compose
+    # sea ejecutado.
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+
+  # ==========================================================
+  # BASE DE DATOS - MYSQL
+  # ==========================================================
+  #
+  # Se prepara un servicio MySQL para el sistema médico.
+  #
+  # IMPORTANTE:
+  # Esto NO afecta el MySQL que actualmente tienes instalado
+  # y funcionando fuera de Docker.
+  # ==========================================================
+
+  mysql:
+
+    # Imagen oficial de MySQL.
+    image: mysql:8.0
+
+    # Nombre del futuro contenedor.
+    container_name: vitalia_mysql
+
+    # Reinicia el contenedor automáticamente si se detiene.
+    restart: unless-stopped
+
+    # Configuración de ejemplo.
+    #
+    # ESTOS DATOS SON SOLO DE PREPARACIÓN.
+    # NO son las credenciales actuales de tu sistema.
+    environment:
+      MYSQL_DATABASE: vitalia
+      MYSQL_USER: vitalia_user
+      MYSQL_PASSWORD: vitalia_password
+      MYSQL_ROOT_PASSWORD: root_password
+
+    # ========================================================
+    # PUERTOS
+    # ========================================================
+    #
+    # Se utiliza el puerto 3307 en la computadora para evitar
+    # interferir con un MySQL que actualmente pueda utilizar
+    # el puerto 3306.
+    #
+    # Computadora: 3307
+    # Docker:      3306
+    #
+    # Actualmente esto NO está activo porque Docker Compose
+    # todavía no se está ejecutando.
+    # ========================================================
+
+    ports:
+      - "3307:3306"
+
+    # ========================================================
+    # VOLUMEN
+    # ========================================================
+    #
+    # Cuando se implemente, este volumen permitirá conservar
+    # los datos de MySQL aunque el contenedor sea recreado.
+    # ========================================================
+
+    volumes:
+      - vitalia_mysql_data:/var/lib/mysql
+
+    # ========================================================
+    # COMPROBACIÓN DEL ESTADO DE MYSQL
+    # ========================================================
+    #
+    # Permite comprobar posteriormente que MySQL esté listo
+    # antes de que FastAPI intente conectarse.
+    # ========================================================
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-proot_password"
+        ]
+
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+# ============================================================
+# VOLUMEN DE MYSQL
+# ============================================================
+#
+# Se declara el almacenamiento persistente que utilizará
+# MySQL cuando Docker Compose sea implementado.
+# ============================================================
+
+volumes:
+
+  vitalia_mysql_data:
