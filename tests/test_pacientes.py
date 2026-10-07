@@ -6,6 +6,7 @@ from app.main import app
 client = TestClient(app)
 
 
+# Verifica que no se puedan obtener los pacientes sin iniciar sesión.
 def test_obtener_pacientes_sin_token():
     response = client.get(
         "/api/pacientes/"
@@ -14,6 +15,7 @@ def test_obtener_pacientes_sin_token():
     assert response.status_code == 401
 
 
+# Verifica que no se pueda crear un paciente sin tener un token de autenticación.
 def test_crear_paciente_sin_token():
     response = client.post(
         "/api/pacientes/",
