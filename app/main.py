@@ -4,6 +4,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
+from app.core.dependencies import get_current_user
+from app.models.usuario import Usuario
+
 from app.routers.auth import router as auth_router
 from app.routers.roles import router as roles_router
 from app.routers.usuarios import router as usuarios_router
@@ -11,14 +14,14 @@ from app.routers.pacientes import router as pacientes_router
 from app.routers.citas import router as citas_router
 from app.routers.doctores import router as doctores_router
 from app.routers.especialidades import router as especialidades_router
-from app.core.dependencies import get_current_user
-from app.models.usuario import Usuario
+from app.routers.websocket import router as websocket_router
 from app.routers.contratos import router as contratos_router
+
 
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 
@@ -34,6 +37,7 @@ app.add_middleware(
 )
 
 
+# Registrar las rutas de la API
 app.include_router(auth_router)
 app.include_router(roles_router)
 app.include_router(usuarios_router)
@@ -41,7 +45,9 @@ app.include_router(pacientes_router)
 app.include_router(citas_router)
 app.include_router(doctores_router)
 app.include_router(especialidades_router)
+app.include_router(websocket_router)
 app.include_router(contratos_router)
+
 
 @app.get("/")
 def root():
@@ -59,25 +65,24 @@ def health():
 
 @app.get("/health/database")
 def health_database(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    resultado = db.execute(
-        text("SELECT 1")
-    )
+    resultado = db.execute(text("SELECT 1"))
 
     return {
         "database": "conectada",
-        "resultado": resultado.scalar()
+        "resultado": resultado.scalar(),
     }
-    
+
+
 @app.get("/api/auth/me")
 def obtener_usuario_actual(
-    usuario: Usuario = Depends(get_current_user)
+    usuario: Usuario = Depends(get_current_user),
 ):
     return {
         "id": usuario.id_PK,
         "nombre": usuario.nombre,
         "correo": usuario.correo_electronico,
         "rol_id": usuario.rol_id_FK,
-        "estado": usuario.estado
+        "estado": usuario.estado,
     }
