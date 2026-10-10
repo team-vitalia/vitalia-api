@@ -1,3 +1,4 @@
+
 from sqlalchemy import ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -22,5 +23,9 @@ class DoctorEspecialidad(Base):
         nullable=False
     )
 
-    doctor = relationship("Doctor")
+    doctor = relationship(
+        "Doctor",
+        back_populates="especialidades_asignadas"
+    )
+
     especialidad = relationship("Especialidad")

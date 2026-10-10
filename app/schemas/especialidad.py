@@ -1,8 +1,15 @@
-from pydantic import BaseModel
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class EspecialidadCrear(BaseModel):
-    nombre: str
+    nombre: str = Field(min_length=1, max_length=100)
+    descripcion: str | None = None
+    codigo: str | None = None
+
+
+class EspecialidadActualizar(BaseModel):
+    nombre: str = Field(min_length=1, max_length=100)
     descripcion: str | None = None
     codigo: str | None = None
 
@@ -14,5 +21,4 @@ class EspecialidadResponse(BaseModel):
     codigo: str | None
     esta_activo: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
