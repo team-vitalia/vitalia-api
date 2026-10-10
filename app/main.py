@@ -11,6 +11,7 @@ from app.routers.pacientes import router as pacientes_router
 from app.routers.citas import router as citas_router
 from app.routers.doctores import router as doctores_router
 from app.routers.especialidades import router as especialidades_router
+from app.routers.websocket import router as websocket_router
 from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
 
@@ -40,6 +41,7 @@ app.include_router(pacientes_router)
 app.include_router(citas_router)
 app.include_router(doctores_router)
 app.include_router(especialidades_router)
+app.include_router(websocket_router)
 
 
 @app.get("/")
