@@ -13,6 +13,7 @@ from app.routers.doctores import router as doctores_router
 from app.routers.especialidades import router as especialidades_router
 from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
+from app.routers.contratos import router as contratos_router
 
 app = FastAPI(
     title="VITALIA API",
@@ -40,7 +41,7 @@ app.include_router(pacientes_router)
 app.include_router(citas_router)
 app.include_router(doctores_router)
 app.include_router(especialidades_router)
-
+app.include_router(contratos_router)
 
 @app.get("/")
 def root():
