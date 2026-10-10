@@ -1,6 +1,7 @@
+
 from datetime import date
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class UsuarioCrear(BaseModel):
@@ -18,9 +19,10 @@ class UsuarioCrear(BaseModel):
     direccion: str | None = None
 
     # Datos de doctor
-    especialidad_id_FK: int | None = None
+    especialidad_id_FK: int | None = None  # Compatibilidad
+    especialidad_ids: list[int] = Field(default_factory=list)
     numero_licencia: str | None = None
-    costo_consulta: float | None = None
+    costo_consulta: float | None = Field(default=None, ge=0)
 
 
 class UsuarioResponse(BaseModel):
@@ -32,3 +34,11 @@ class UsuarioResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class UsuarioActualizar(BaseModel):
+    nombre: str | None = None
+    correo_electronico: EmailStr | None = None
+    telefono: str | None = None
+    rol_id_FK: int | None = None
+    estado: str | None = None

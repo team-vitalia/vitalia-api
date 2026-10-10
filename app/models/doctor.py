@@ -1,6 +1,6 @@
 from sqlalchemy import ForeignKey, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-
+from app.models.doctor_especialidad import DoctorEspecialidad
 from app.database.connection import Base
 
 
@@ -35,6 +35,12 @@ class Doctor(Base):
 
     ruta_firma: Mapped[str | None] = mapped_column(
         String(255)
+    )
+    
+    especialidades_asignadas = relationship(
+        "DoctorEspecialidad",
+        back_populates="doctor",
+        cascade="all, delete-orphan"
     )
 
     usuario = relationship("Usuario")
