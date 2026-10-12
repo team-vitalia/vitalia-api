@@ -7,6 +7,8 @@ from app.models.usuario import Usuario
 from app.models.doctor import Doctor
 from app.models.contrato_doctor import ContratoDoctor
 from app.services.contrato_pdf import generar_pdf_contrato
+from pathlib import Path
+from fastapi.responses import FileResponse
 from app.schemas.contrato_doctor import (
     ContratoCrear,
     ContratoActualizar,
@@ -103,6 +105,73 @@ def listar_contratos(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="No tienes permiso para consultar contratos",
     )
+    
+
+# CONSULTAR MI CONTRATO (MÉDICO)
+@router.get(
+    "/mi-contrato",
+    response_model=list[ContratoResponse],
+)
+def consultar_mi_contrato(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    # Solo los médicos pueden consultar esta ruta.
+    if usuario_actual.rol_id_FK != 2:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los médicos pueden consultar sus contratos",
+        )
+    
+    # Obtener el perfil del médico autenticado.
+    doctor = obtener_doctor_usuario(db, usuario_actual)
+
+    print("Usuario autenticado:", usuario_actual.id_PK)
+    print("Rol autenticado:", usuario_actual.rol_id_FK)
+    print("Perfil del médico:", doctor.id_PK)
+    print("Usuario asociado al médico:", doctor.usuario_id_FK)
+
+    # Consultar todos los contratos para diagnóstico.
+    todos = (
+        db.query(ContratoDoctor)
+        .order_by(ContratoDoctor.id_PK.desc())
+        .all()
+    )
+
+    print(
+        "Todos los contratos visibles desde la API:",
+        [
+            {
+                "contrato_id": c.id_PK,
+                "doctor_id": c.doctor_id_FK,
+                "estado": c.estado,
+            }
+            for c in todos
+        ],
+    )
+
+    # Consultar los contratos del médico autenticado.
+    contratos = (
+        db.query(ContratoDoctor)
+        .filter(
+            ContratoDoctor.doctor_id_FK == doctor.id_PK
+        )
+        .order_by(ContratoDoctor.id_PK.desc())
+        .all()
+    )
+
+    print(
+        "Contratos del médico autenticado:",
+        [
+            {
+                "contrato_id": c.id_PK,
+                "doctor_id": c.doctor_id_FK,
+            }
+            for c in contratos
+        ],
+    )
+
+    return contratos
 
 
 # CONSULTAR UN CONTRATO
@@ -134,6 +203,53 @@ def consultar_contrato(
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="No tienes permiso para consultar este contrato",
+    )
+    
+# VISUALIZAR DOCUMENTO DEL CONTRATO
+@router.get("/{contrato_id}/documento")
+def ver_documento_contrato(
+    contrato_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    contrato = obtener_contrato_o_error(db, contrato_id)
+
+    # Solo el administrador o el médico propietario pueden verlo.
+    if usuario_actual.rol_id_FK == 1:
+        pass
+    elif usuario_actual.rol_id_FK == 2:
+        doctor = obtener_doctor_usuario(db, usuario_actual)
+
+        if contrato.doctor_id_FK != doctor.id_PK:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No puedes consultar contratos de otros médicos",
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para consultar este documento",
+        )
+
+    if not contrato.url_documento:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Este contrato no tiene un documento asociado",
+        )
+
+    ruta = Path(contrato.url_documento)
+
+    if not ruta.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No se encontró el archivo PDF del contrato",
+        )
+
+    return FileResponse(
+        path=str(ruta),
+        media_type="application/pdf",
+        filename=f"contrato_{contrato.id_PK}.pdf",
+        content_disposition_type="inline",
     )
 
 

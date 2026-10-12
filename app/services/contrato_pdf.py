@@ -3,9 +3,10 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 import re
 import unicodedata
+from datetime import date
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
@@ -13,8 +14,7 @@ from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
-    Table,
-    TableStyle,
+    HRFlowable,
 )
 
 
@@ -25,17 +25,14 @@ def obtener_nombre_carpeta(nombre: str) -> str:
     nombre = re.sub(r"[^a-zA-Z0-9_-]+", "_", nombre)
     return nombre.strip("_") or "Medico"
 
-
 def generar_pdf_contrato(contrato, doctor) -> str:
     # Raíz del proyecto vitalia-api
     raiz_proyecto = Path(__file__).resolve().parents[2]
 
-    # Obtener el nombre del médico
-    nombre_doctor = "Medico"
+    nombre_doctor = "Médico"
     if getattr(doctor, "usuario", None):
-        nombre_doctor = doctor.usuario.nombre or "Medico"
+        nombre_doctor = doctor.usuario.nombre or "Médico"
 
-    # Crear una carpeta con el nombre del médico
     carpeta_doctor = obtener_nombre_carpeta(nombre_doctor)
 
     carpeta = (
@@ -46,151 +43,360 @@ def generar_pdf_contrato(contrato, doctor) -> str:
     )
     carpeta.mkdir(parents=True, exist_ok=True)
 
-    # Crear el archivo correspondiente al contrato
     archivo = carpeta / f"contrato_{contrato.id_PK}.pdf"
-
-    def fecha(valor):
-        return valor.strftime("%d/%m/%Y") if valor else "No especificada"
-
-    def texto(valor):
-        return escape(str(valor)) if valor is not None else "No especificado"
-
     contenido = BytesIO()
+
+    verde = colors.HexColor("#247F76")
+    verde_oscuro = colors.HexColor("#185E57")
+    gris = colors.HexColor("#404B49")
+    gris_claro = colors.HexColor("#788581")
 
     documento = SimpleDocTemplate(
         contenido,
         pagesize=letter,
-        rightMargin=0.7 * inch,
-        leftMargin=0.7 * inch,
-        topMargin=0.7 * inch,
-        bottomMargin=0.7 * inch,
+        rightMargin=0.85 * inch,
+        leftMargin=0.85 * inch,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch,
+        title=f"Contrato de servicios médicos VITALIA {contrato.id_PK}",
+        author="VITALIA",
     )
 
     estilos = getSampleStyleSheet()
 
     estilos.add(
         ParagraphStyle(
-            name="TituloVitalia",
-            parent=estilos["Title"],
+            name="Marca",
+            fontName="Helvetica-Bold",
+            fontSize=23,
+            leading=28,
             alignment=TA_CENTER,
-            textColor=colors.HexColor("#247F76"),
-            fontSize=22,
+            textColor=verde_oscuro,
+            spaceAfter=4,
+        )
+    )
+
+    estilos.add(
+        ParagraphStyle(
+            name="Lema",
+            fontName="Helvetica",
+            fontSize=8,
+            leading=12,
+            alignment=TA_CENTER,
+            textColor=gris_claro,
+            spaceAfter=18,
+        )
+    )
+
+    estilos.add(
+        ParagraphStyle(
+            name="TituloContrato",
+            fontName="Helvetica-Bold",
+            fontSize=14,
+            leading=19,
+            alignment=TA_CENTER,
+            textColor=gris,
+            spaceBefore=15,
             spaceAfter=8,
         )
     )
 
     estilos.add(
         ParagraphStyle(
-            name="SubtituloVitalia",
-            parent=estilos["Normal"],
+            name="NumeroContrato",
+            fontName="Helvetica",
+            fontSize=9,
+            leading=14,
             alignment=TA_CENTER,
-            textColor=colors.HexColor("#627772"),
-            fontSize=11,
-            spaceAfter=20,
+            textColor=gris_claro,
+            spaceAfter=18,
         )
     )
 
-    elementos = [
-        Paragraph("VITALIA", estilos["TituloVitalia"]),
-        Paragraph("CONTRATO MEDICO", estilos["SubtituloVitalia"]),
-        Spacer(1, 10),
-        Paragraph(
-            f"<b>Numero de contrato:</b> {contrato.id_PK}",
-            estilos["Normal"],
-        ),
-        Spacer(1, 16),
-        Paragraph(
-            "DATOS DEL MEDICO Y DEL CONTRATO",
-            estilos["Heading2"],
-        ),
-        Spacer(1, 10),
-    ]
-
-    filas = [
-        ["Campo", "Informacion"],
-        ["Medico", texto(nombre_doctor)],
-        ["Identificador del medico", str(contrato.doctor_id_FK)],
-        ["Tipo de contrato", texto(contrato.tipo_contrato)],
-        ["Estado", texto(contrato.estado)],
-        ["Fecha de inicio", fecha(contrato.fecha_inicio)],
-        ["Fecha de fin", fecha(contrato.fecha_fin)],
-        [
-            "Salario",
-            f"${float(contrato.salario or 0):,.2f} MXN",
-        ],
-    ]
-
-    tabla = Table(
-        filas,
-        colWidths=[2.2 * inch, 4.5 * inch],
-    )
-
-    tabla.setStyle(
-        TableStyle(
-            [
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (-1, 0),
-                    colors.HexColor("#247F76"),
-                ),
-                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.5,
-                    colors.HexColor("#DCE8E5"),
-                ),
-                (
-                    "BACKGROUND",
-                    (0, 1),
-                    (0, -1),
-                    colors.HexColor("#EAF5F2"),
-                ),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 9),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
-                ("TOPPADDING", (0, 0), (-1, -1), 9),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
-            ]
+    estilos.add(
+        ParagraphStyle(
+            name="SeccionContrato",
+            fontName="Helvetica-Bold",
+            fontSize=10,
+            leading=15,
+            alignment=TA_LEFT,
+            textColor=verde_oscuro,
+            spaceBefore=15,
+            spaceAfter=7,
+            keepWithNext=True,
         )
     )
 
-    elementos.append(tabla)
-    elementos.append(Spacer(1, 35))
+    estilos.add(
+        ParagraphStyle(
+            name="TextoContrato",
+            fontName="Helvetica",
+            fontSize=9.5,
+            leading=16,
+            alignment=TA_JUSTIFY,
+            textColor=gris,
+            spaceAfter=10,
+        )
+    )
+
+    estilos.add(
+        ParagraphStyle(
+            name="PieContrato",
+            fontName="Helvetica",
+            fontSize=8,
+            leading=11,
+            alignment=TA_CENTER,
+            textColor=gris_claro,
+        )
+    )
+
+    def texto(valor, predeterminado="No especificado"):
+        if valor is None or str(valor).strip() == "":
+            valor = predeterminado
+        return escape(str(valor))
+
+    def fecha(valor):
+        return valor.strftime("%d/%m/%Y") if valor else "No especificada"
+
+    def moneda(valor):
+        try:
+            return f"${float(valor or 0):,.2f} MXN"
+        except (TypeError, ValueError):
+            return "No especificado"
+
+    elementos = []
+
+    # Encabezado institucional
+    elementos.append(Paragraph("VITALIA", estilos["Marca"]))
     elementos.append(
-        Paragraph("FIRMAS", estilos["Heading2"])
-    )
-    elementos.append(Spacer(1, 45))
-
-    firmas = Table(
-        [
-            ["____________________________", "____________________________"],
-            ["Representante de VITALIA", texto(nombre_doctor)],
-            ["Firma", "Firma del medico"],
-        ],
-        colWidths=[3.35 * inch, 3.35 * inch],
-    )
-
-    firmas.setStyle(
-        TableStyle(
-            [
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ]
+        Paragraph(
+            "SISTEMA DE GESTIÓN Y ADMINISTRACIÓN CLÍNICA",
+            estilos["Lema"],
         )
     )
 
-    elementos.append(firmas)
+    elementos.append(
+        HRFlowable(
+            width="100%",
+            thickness=1.5,
+            color=verde,
+            spaceBefore=2,
+            spaceAfter=14,
+        )
+    )
 
-    # Generar el contenido del PDF
-    documento.build(elementos)
+    elementos.append(
+        Paragraph(
+            "CONTRATO DE PRESTACIÓN DE SERVICIOS MÉDICOS",
+            estilos["TituloContrato"],
+        )
+    )
 
-    # Crear o reemplazar el PDF correspondiente al contrato
+    elementos.append(
+        Paragraph(
+            f"Folio: VIT-{contrato.id_PK:05d}"
+            f" &nbsp;&nbsp; | &nbsp;&nbsp; "
+            f"Fecha de emisión: {date.today().strftime('%d/%m/%Y')}",
+            estilos["NumeroContrato"],
+        )
+    )
+
+    # Introducción
+    elementos.append(
+        Paragraph(
+            "DOCUMENTO CONTRACTUAL",
+            estilos["SeccionContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            "El presente documento tiene por objeto identificar al "
+            "profesional médico y describir las condiciones administrativas "
+            "registradas en el sistema VITALIA en relación con su contrato. "
+            "La información se presenta para su revisión y validación por "
+            "las partes correspondientes.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    # Primera sección
+    elementos.append(
+        Paragraph(
+            "PRIMERA. IDENTIFICACIÓN DEL PROFESIONAL",
+            estilos["SeccionContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            f"<b>Nombre del profesional médico:</b> "
+            f"{texto(nombre_doctor)}.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            f"<b>Identificador de médico en el sistema:</b> "
+            f"{texto(contrato.doctor_id_FK)}.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    # Segunda sección
+    elementos.append(
+        Paragraph(
+            "SEGUNDA. TIPO Y ESTADO DEL CONTRATO",
+            estilos["SeccionContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            f"El tipo de contrato registrado es "
+            f"<b>{texto(contrato.tipo_contrato)}</b>. "
+            f"Su estado administrativo actual en el sistema VITALIA es "
+            f"<b>{texto(contrato.estado)}</b>.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    # Tercera sección
+    elementos.append(
+        Paragraph(
+            "TERCERA. VIGENCIA",
+            estilos["SeccionContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            f"La fecha de inicio registrada para el contrato es "
+            f"<b>{fecha(contrato.fecha_inicio)}</b>. "
+            f"La fecha de término registrada es "
+            f"<b>{fecha(contrato.fecha_fin)}</b>. "
+            "La vigencia deberá interpretarse conforme a las condiciones "
+            "acordadas y a las disposiciones que resulten aplicables.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    # Cuarta sección
+    elementos.append(
+        Paragraph(
+            "CUARTA. REMUNERACIÓN",
+            estilos["SeccionContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            f"La cantidad registrada en el sistema como salario o "
+            f"remuneración es de <b>{moneda(contrato.salario)}</b>. "
+            "La periodicidad, forma de pago, deducciones y demás condiciones "
+            "económicas deberán establecerse expresamente en el acuerdo "
+            "correspondiente.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    # Quinta sección
+    elementos.append(
+        Paragraph(
+            "QUINTA. ACTUALIZACIÓN DE LA INFORMACIÓN",
+            estilos["SeccionContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            "Los datos descritos en este documento corresponden a la "
+            "información almacenada en VITALIA. Cualquier modificación "
+            "relativa al tipo de contrato, vigencia, estado o remuneración "
+            "deberá actualizarse mediante los procedimientos autorizados "
+            "por la administración correspondiente.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    # Sexta sección
+    elementos.append(
+        Paragraph(
+            "SEXTA. REVISIÓN Y VALIDACIÓN",
+            estilos["SeccionContrato"],
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            "El contenido de este documento deberá revisarse para confirmar "
+            "que los datos sean correctos y que las condiciones contractuales "
+            "se encuentren debidamente establecidas. La generación de este "
+            "PDF por sí sola no acredita la aceptación ni la firma de las "
+            "partes.",
+            estilos["TextoContrato"],
+        )
+    )
+
+    elementos.append(Spacer(1, 16))
+
+    elementos.append(
+        HRFlowable(
+            width="100%",
+            thickness=0.7,
+            color=colors.HexColor("#D7E2DF"),
+            spaceBefore=4,
+            spaceAfter=10,
+        )
+    )
+
+    elementos.append(
+        Paragraph(
+            "Documento generado por el sistema VITALIA para fines "
+            "administrativos y de revisión contractual.",
+            estilos["PieContrato"],
+        )
+    )
+
+    # Pie de página y numeración
+    def dibujar_pie(canvas, doc):
+        canvas.saveState()
+
+        ancho, _ = letter
+        canvas.setStrokeColor(colors.HexColor("#D7E2DF"))
+        canvas.setLineWidth(0.5)
+
+        canvas.line(
+            documento.leftMargin,
+            0.55 * inch,
+            ancho - documento.rightMargin,
+            0.55 * inch,
+        )
+
+        canvas.setFont("Helvetica", 8)
+        canvas.setFillColor(gris_claro)
+
+        canvas.drawString(
+            documento.leftMargin,
+            0.36 * inch,
+            f"VITALIA | Folio VIT-{contrato.id_PK:05d}",
+        )
+
+        canvas.drawRightString(
+            ancho - documento.rightMargin,
+            0.36 * inch,
+            f"Página {doc.page}",
+        )
+
+        canvas.restoreState()
+
+    documento.build(
+        elementos,
+        onFirstPage=dibujar_pie,
+        onLaterPages=dibujar_pie,
+    )
+
     archivo.write_bytes(contenido.getvalue())
 
-    # Ruta relativa que se guardará en MySQL
     return archivo.relative_to(raiz_proyecto).as_posix()
