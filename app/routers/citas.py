@@ -6,8 +6,10 @@ from app.models.cita import Cita
 from app.models.paciente import Paciente
 from app.models.doctor import Doctor
 from app.models.usuario import Usuario
+from app.models.cola import Cola
 from app.schemas.cita import CitaCrear, CitaResponse
 from app.core.dependencies import get_current_user
+
 
 
 router = APIRouter(
@@ -95,3 +97,51 @@ def crear_cita(
     db.refresh(nueva_cita)
 
     return nueva_cita
+
+@router.delete("/{cita_id}", status_code=status.HTTP_200_OK)
+def eliminar_cita(
+    cita_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """
+    Elimina una cita.
+    Si tiene turno asociado, también elimina el turno (en cascada).
+    """
+
+    verificar_permiso_recepcion(usuario_actual)
+
+    cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
+
+    if not cita:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La cita no existe"
+        )
+
+    try:
+        # 1. Eliminar la cola asociada (si existe)
+        cola = db.query(Cola).filter(Cola.cita_id_FK == cita_id).first()
+
+        if cola:
+            db.delete(cola)
+            db.flush()  # Aseguramos que se elimine antes de la cita
+
+        # 2. Eliminar la cita
+        db.delete(cita)
+        db.commit()
+
+        return {
+            "mensaje": f"Cita #{cita_id} eliminada correctamente",
+            "id_eliminado": cita_id,
+            "turno_eliminado": cola.numero_cola if cola else None
+        }
+
+    except Exception as e:
+        db.rollback()
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"No se pudo eliminar la cita: {str(e)}"
+        )

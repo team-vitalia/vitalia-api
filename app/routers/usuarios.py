@@ -249,12 +249,20 @@ def crear_usuario(
         db.rollback()
         raise
 
-    except Exception:
+    except Exception as e:
         db.rollback()
+        import traceback
+        print("=" * 60)
+        print("🚨 ERROR AL CREAR USUARIO:")
+        print("=" * 60)
+        traceback.print_exc()
+        print(f"Tipo: {type(e).__name__}")
+        print(f"Mensaje: {str(e)}")
+        print("=" * 60)
 
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No fue posible crear el usuario"
+            detail=f"Error: {str(e)}"
         )
 
 

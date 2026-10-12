@@ -16,7 +16,7 @@ from app.routers.doctores import router as doctores_router
 from app.routers.especialidades import router as especialidades_router
 from app.routers.websocket import router as websocket_router
 from app.routers.calendar import router as calendar_router
-
+from app.routers.colas import router as colas_router
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
@@ -45,6 +45,7 @@ app.include_router(doctores_router)
 app.include_router(especialidades_router)
 app.include_router(websocket_router)
 app.include_router(calendar_router)
+app.include_router(colas_router)
 
 
 @app.get("/")
