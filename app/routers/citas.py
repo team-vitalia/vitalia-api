@@ -28,6 +28,46 @@ def verificar_permiso_recepcion(
         )
 
 
+@router.get("/mis-consultas")
+def obtener_mis_consultas(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """
+    Devuelve las citas del doctor que está logueado.
+    Solo accesible para doctores (rol 2).
+    """
+
+    # Solo doctores
+    if usuario_actual.rol_id_FK != 2:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los doctores pueden ver sus consultas"
+        )
+
+    # 1. Buscar el perfil del doctor
+    doctor = (
+        db.query(Doctor)
+        .filter(Doctor.usuario_id_FK == usuario_actual.id_PK)
+        .first()
+    )
+
+    if not doctor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No tienes un perfil de doctor registrado"
+        )
+
+    # 2. Buscar las citas del doctor
+    citas = (
+        db.query(Cita)
+        .filter(Cita.doctor_id_FK == doctor.id_PK)
+        .order_by(Cita.fecha.desc(), Cita.hora_inicio.desc())
+        .all()
+    )
+
+    return citas
+    
 @router.get("/")
 def obtener_citas(
     db: Session = Depends(get_db),

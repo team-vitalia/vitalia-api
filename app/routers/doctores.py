@@ -9,6 +9,8 @@ from app.models.doctor import Doctor
 from app.models.usuario import Usuario
 from app.models.especialidad import Especialidad
 from app.models.doctor_especialidad import DoctorEspecialidad
+from app.models.cita import Cita
+from app.models.paciente import Paciente
 from app.schemas.doctor import (
     DoctorCrear,
     DoctorActualizarPerfil,
@@ -425,3 +427,74 @@ def actualizar_doctor_admin(
             status_code=500,
             detail="No fue posible actualizar el perfil del médico"
         )
+
+@router.get("/mis-pacientes")
+def obtener_mis_pacientes(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """
+    Devuelve los pacientes que tienen citas con el doctor logueado.
+    Solo accesible para doctores (rol 2).
+    """
+
+    # Solo doctores
+    if usuario_actual.rol_id_FK != 2:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los doctores pueden ver sus pacientes"
+        )
+
+    # 1. Buscar el perfil del doctor
+    doctor = (
+        db.query(Doctor)
+        .filter(Doctor.usuario_id_FK == usuario_actual.id_PK)
+        .first()
+    )
+
+    if not doctor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No tienes un perfil de doctor registrado"
+        )
+
+    # 2. Buscar los IDs únicos de pacientes que tienen citas con este doctor
+    from app.models.cita import Cita
+    from app.models.paciente import Paciente
+
+    pacientes_ids = (
+        db.query(Cita.paciente_id_FK)
+        .filter(Cita.doctor_id_FK == doctor.id_PK)
+        .distinct()
+        .all()
+    )
+
+    # Extraer los IDs de los tuplos
+    ids = [p[0] for p in pacientes_ids if p[0] is not None]
+
+    if not ids:
+        return []
+
+    # 3. Buscar los pacientes
+    pacientes = (
+        db.query(Paciente)
+        .filter(Paciente.id_PK.in_(ids))
+        .order_by(Paciente.apellido, Paciente.nombre)
+        .all()
+    )
+
+    # 4. Serializar manualmente para incluir campos útiles
+    return [
+        {
+            "id_PK": p.id_PK,
+            "nombre": p.nombre,
+            "apellido": p.apellido,
+            "correo_electronico": p.correo_electronico,
+            "telefono": p.telefono,
+            "fecha_nacimiento": str(p.fecha_nacimiento) if p.fecha_nacimiento else None,
+            "genero": p.genero,
+            "direccion": p.direccion,
+            "estado": p.estado,
+        }
+        for p in pacientes
+    ]
