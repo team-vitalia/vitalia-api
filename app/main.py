@@ -15,28 +15,35 @@ from app.routers.citas import router as citas_router
 from app.routers.doctores import router as doctores_router
 from app.routers.especialidades import router as especialidades_router
 from app.routers.websocket import router as websocket_router
+from app.routers.contratos import router as contratos_router
 from app.routers.calendar import router as calendar_router
 from app.routers.colas import router as colas_router
-from app.routers import contratos
+
+from app.routers.almacen import router as almacen_router
+from app.routers.notificaciones import router as notificaciones_router
+
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
     version="1.0.0",
 )
 
-
+# Configuración de CORS habilitada para Expo y navegadores web
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:8081",
         "http://127.0.0.1:8081",
+        "http://localhost:19006",
+        "http://127.0.0.1:19006",
+        "*",  # Permite peticiones durante desarrollo
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
+# Registro de rutas principales
 app.include_router(auth_router)
 app.include_router(roles_router)
 app.include_router(usuarios_router)
@@ -45,9 +52,28 @@ app.include_router(citas_router)
 app.include_router(doctores_router)
 app.include_router(especialidades_router)
 app.include_router(websocket_router)
+app.include_router(contratos_router)
 app.include_router(calendar_router)
 app.include_router(colas_router)
-app.include_router(contratos.router)
+
+# Registro de rutas del Módulo A3 (Almacén e Inventarios)
+app.include_router(almacen_router)
+app.include_router(notificaciones_router)
+
+
+@app.on_event("startup")
+async def iniciar_servicios_background():
+    """Inicia tareas en segundo plano como el ciclo de recordatorios de citas."""
+    import asyncio
+    from app.services.reminder_service import ciclo_recordatorios_background
+    asyncio.create_task(ciclo_recordatorios_background(intervalo_segundos=60))
+
+
+@app.on_event("shutdown")
+def detener_servicios_background():
+    """Detiene tareas en segundo plano al apagar la aplicación."""
+    from app.services.reminder_service import detener_ciclo_recordatorios
+    detener_ciclo_recordatorios()
 
 
 @app.get("/")
