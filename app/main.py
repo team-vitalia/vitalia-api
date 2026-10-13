@@ -15,28 +15,34 @@ from app.routers.citas import router as citas_router
 from app.routers.doctores import router as doctores_router
 from app.routers.especialidades import router as especialidades_router
 from app.routers.websocket import router as websocket_router
+from app.routers.contratos import router as contratos_router
 from app.routers.calendar import router as calendar_router
 from app.routers.colas import router as colas_router
-from app.routers import contratos
+
+from app.routers.almacen import router as almacen_router
+
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
     version="1.0.0",
 )
 
-
+# Configuración de CORS habilitada para Expo y navegadores web
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:8081",
         "http://127.0.0.1:8081",
+        "http://localhost:19006",
+        "http://127.0.0.1:19006",
+        "*",  # Permite peticiones durante desarrollo
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
+# Registro de rutas principales
 app.include_router(auth_router)
 app.include_router(roles_router)
 app.include_router(usuarios_router)
@@ -45,9 +51,12 @@ app.include_router(citas_router)
 app.include_router(doctores_router)
 app.include_router(especialidades_router)
 app.include_router(websocket_router)
+app.include_router(contratos_router)
 app.include_router(calendar_router)
 app.include_router(colas_router)
-app.include_router(contratos.router)
+
+# Registro de rutas del Módulo A3 (Almacén e Inventarios)
+app.include_router(almacen_router)
 
 
 @app.get("/")
