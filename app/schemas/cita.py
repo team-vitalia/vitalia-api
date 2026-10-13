@@ -14,6 +14,23 @@ class CitaCrear(BaseModel):
     notas: str | None = None
 
 
+class CitaReprogramar(BaseModel):
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+    motivo: str | None = None
+    notas: str | None = None
+
+
+class CitaActualizar(BaseModel):
+    fecha: date | None = None
+    hora_inicio: time | None = None
+    hora_fin: time | None = None
+    estado: str | None = None
+    motivo: str | None = None
+    notas: str | None = None
+
+
 class CitaResponse(BaseModel):
     id_PK: int
     paciente_id_FK: int | None
@@ -25,6 +42,7 @@ class CitaResponse(BaseModel):
     motivo: str | None
     notas: str | None
     creado_por: int | None
+    google_event_id: str | None = None
 
     class Config:
         from_attributes = True

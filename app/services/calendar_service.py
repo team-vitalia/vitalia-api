@@ -260,6 +260,84 @@ class GoogleCalendarService:
             logger.error(f"Error de Google Calendar al crear evento: {error}")
             raise error
 
+    def create_appointment_event(
+        self,
+        credentials: Credentials,
+        summary: str,
+        description: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> Dict[str, Any]:
+        """Crea un evento de cita médica en Google Calendar con horario específico."""
+        service = self.get_calendar_client(credentials)
+        event_body = {
+            "summary": summary,
+            "description": description,
+            "start": {
+                "dateTime": start_time.isoformat(),
+                "timeZone": "America/Mexico_City"
+            },
+            "end": {
+                "dateTime": end_time.isoformat(),
+                "timeZone": "America/Mexico_City"
+            },
+            "reminders": {
+                "useDefault": False,
+                "overrides": [
+                    {"method": "popup", "minutes": 30},
+                    {"method": "email", "minutes": 60}
+                ]
+            }
+        }
+        try:
+            created_event = service.events().insert(
+                calendarId="primary",
+                body=event_body
+            ).execute()
+            logger.info(f"Cita creada en Google Calendar con ID: {created_event.get('id')}")
+            return created_event
+        except HttpError as error:
+            logger.error(f"Error al crear evento de cita en Google Calendar: {error}")
+            raise error
+
+    def update_event(
+        self,
+        credentials: Credentials,
+        event_id: str,
+        summary: Optional[str] = None,
+        description: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None
+    ) -> Dict[str, Any]:
+        """Actualiza un evento existente en Google Calendar usando patch."""
+        service = self.get_calendar_client(credentials)
+        patch_body: Dict[str, Any] = {}
+        if summary:
+            patch_body["summary"] = summary
+        if description:
+            patch_body["description"] = description
+        if start_time:
+            patch_body["start"] = {
+                "dateTime": start_time.isoformat(),
+                "timeZone": "America/Mexico_City"
+            }
+        if end_time:
+            patch_body["end"] = {
+                "dateTime": end_time.isoformat(),
+                "timeZone": "America/Mexico_City"
+            }
+        try:
+            updated_event = service.events().patch(
+                calendarId="primary",
+                eventId=event_id,
+                body=patch_body
+            ).execute()
+            logger.info(f"Evento {event_id} actualizado en Google Calendar.")
+            return updated_event
+        except HttpError as error:
+            logger.error(f"Error al actualizar evento {event_id} en Google Calendar: {error}")
+            raise error
+
     def delete_event(self, credentials: Credentials, event_id: str) -> bool:
         """Elimina un evento de Google Calendar dado su ID."""
         service = self.get_calendar_client(credentials)
@@ -271,8 +349,17 @@ class GoogleCalendarService:
             logger.info(f"Evento {event_id} eliminado exitosamente de Google Calendar.")
             return True
         except HttpError as error:
+            if getattr(error, "resp", None) and getattr(error.resp, "status", None) == 404:
+                logger.warning(f"Evento {event_id} no encontrado en Google Calendar (ya eliminado).")
+                return True
             logger.error(f"Error al eliminar evento {event_id}: {error}")
             raise error
 
 
 calendar_service = GoogleCalendarService()
+
+
+def has_valid_credentials(user_id: str) -> bool:
+    """Valida si el usuario dispone de credenciales de Google Calendar válidas y activas."""
+    return calendar_service.is_user_connected(user_id)
+

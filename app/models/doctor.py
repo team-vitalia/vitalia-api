@@ -45,3 +45,10 @@ class Doctor(Base):
 
     usuario = relationship("Usuario")
     especialidad = relationship("Especialidad")
+
+    @property
+    def nombre(self) -> str:
+        """Retorna el nombre del usuario asociado o un fallback representativo."""
+        if self.usuario and self.usuario.nombre:
+            return self.usuario.nombre
+        return f"Doctor #{self.id_PK}"
