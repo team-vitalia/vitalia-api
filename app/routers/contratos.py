@@ -6,9 +6,6 @@ from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
 from app.models.doctor import Doctor
 from app.models.contrato_doctor import ContratoDoctor
-from app.services.contrato_pdf import generar_pdf_contrato
-from pathlib import Path
-from fastapi.responses import FileResponse
 from app.schemas.contrato_doctor import (
     ContratoCrear,
     ContratoActualizar,
@@ -205,55 +202,6 @@ def consultar_contrato(
         detail="No tienes permiso para consultar este contrato",
     )
     
-# VISUALIZAR DOCUMENTO DEL CONTRATO
-@router.get("/{contrato_id}/documento")
-def ver_documento_contrato(
-    contrato_id: int,
-    db: Session = Depends(get_db),
-    usuario_actual: Usuario = Depends(get_current_user),
-):
-    contrato = obtener_contrato_o_error(db, contrato_id)
-
-    # Solo el administrador o el médico propietario pueden verlo.
-    if usuario_actual.rol_id_FK == 1:
-        pass
-    elif usuario_actual.rol_id_FK == 2:
-        doctor = obtener_doctor_usuario(db, usuario_actual)
-
-        if contrato.doctor_id_FK != doctor.id_PK:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="No puedes consultar contratos de otros médicos",
-            )
-    else:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No tienes permiso para consultar este documento",
-        )
-
-    if not contrato.url_documento:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Este contrato no tiene un documento asociado",
-        )
-
-    ruta = Path(contrato.url_documento)
-
-    if not ruta.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No se encontró el archivo PDF del contrato",
-        )
-
-    return FileResponse(
-        path=str(ruta),
-        media_type="application/pdf",
-        filename=f"contrato_{contrato.id_PK}.pdf",
-        content_disposition_type="inline",
-    )
-
-
-# REGISTRAR CONTRATO
 # REGISTRAR CONTRATO
 @router.post(
     "/",
@@ -292,29 +240,19 @@ def crear_contrato(
     )
 
     try:
-        # 1. Crear el registro para obtener su ID.
         db.add(contrato)
-        db.flush()
-
-        # 2. Generar el PDF en la carpeta del médico.
-        ruta_pdf = generar_pdf_contrato(contrato, doctor)
-
-        # 3. Guardar la ruta del archivo en MySQL.
-        contrato.url_documento = ruta_pdf
-
-        # 4. Confirmar el registro.
         db.commit()
         db.refresh(contrato)
-
         return contrato
 
     except Exception:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo registrar el contrato ni generar su PDF",
+            detail="No se pudo registrar el contrato",
         )
         
+
 # ACTUALIZAR CONTRATO
 @router.put(
     "/{contrato_id}",
@@ -326,11 +264,13 @@ def actualizar_contrato(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
+    # Solo el administrador puede actualizar contratos.
     exigir_administrador(usuario_actual)
 
+    # Buscar el contrato que se desea modificar.
     contrato = obtener_contrato_o_error(db, contrato_id)
 
-    # El administrador no debe modificar manualmente la ruta del PDF.
+    # Obtener únicamente los campos enviados en la solicitud.
     cambios = datos.model_dump(
         exclude_unset=True,
         exclude={"url_documento"},
@@ -342,10 +282,12 @@ def actualizar_contrato(
             detail="Debes proporcionar al menos un campo para actualizar",
         )
 
+    # Validar las fechas nuevas junto con las que ya existen.
     fecha_inicio = cambios.get(
         "fecha_inicio",
         contrato.fecha_inicio,
     )
+
     fecha_fin = cambios.get(
         "fecha_fin",
         contrato.fecha_fin,
@@ -353,46 +295,38 @@ def actualizar_contrato(
 
     validar_vigencia(fecha_inicio, fecha_fin)
 
-    # Si se cambia el médico, comprobar que exista.
-    doctor_id = cambios.get(
-        "doctor_id_FK",
-        contrato.doctor_id_FK,
-    )
+    # Validar el médico solamente si se envió ese campo.
+    if "doctor_id_FK" in cambios:
+        doctor_id = cambios["doctor_id_FK"]
 
-    doctor = (
-        db.query(Doctor)
-        .filter(Doctor.id_PK == doctor_id)
-        .first()
-    )
-
-    if not doctor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El médico seleccionado no existe",
+        doctor = (
+            db.query(Doctor)
+            .filter(Doctor.id_PK == doctor_id)
+            .first()
         )
 
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El médico seleccionado no existe",
+            )
+
+    # Aplicar TODOS los cambios antes de guardar.
     for campo, valor in cambios.items():
         if campo in ("estado", "tipo_contrato") and valor is not None:
             valor = valor.strip()
 
         setattr(contrato, campo, valor)
 
+    # Guardar una sola vez después de modificar todos los campos.
     try:
-        # Aplicar los cambios antes de generar el documento.
-        db.flush()
-
-        # Crear nuevamente el PDF con los datos actualizados.
-        ruta_pdf = generar_pdf_contrato(contrato, doctor)
-        contrato.url_documento = ruta_pdf
-
         db.commit()
         db.refresh(contrato)
-
         return contrato
 
     except Exception:
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="No se pudo actualizar el contrato ni regenerar su PDF",
+            detail="No se pudo actualizar el contrato",
         )
