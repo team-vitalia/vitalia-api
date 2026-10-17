@@ -16,7 +16,6 @@ def guardar_notificacion_bd(
     tipo: str,
     enlace: Optional[str] = None
 ) -> Optional[Notificacion]:
-    """Crea y persiste un registro de notificación en la base de datos para un usuario específico."""
     try:
         notif = Notificacion(
             usuario_id_FK=usuario_id,
@@ -48,9 +47,8 @@ async def notificar_cita_creada(
     creador_usuario_id: Optional[int] = None,
     paciente_usuario_id: Optional[int] = None
 ):
-    """Guarda notificaciones en BD y las emite vía WebSockets al crear una nueva cita médica."""
-    texto_doctor = f"Nueva cita #{cita_id} asignada para {paciente_nombre} el {fecha} a las {hora}."
-    texto_recepcion = f"Nueva cita #{cita_id} registrada para {paciente_nombre} con Dr. {doctor_nombre} el {fecha} a las {hora}."
+    texto_doctor = f"Nueva cita {cita_id} asignada para {paciente_nombre} el {fecha} a las {hora}."
+    texto_recepcion = f"Nueva cita {cita_id} registrada para {paciente_nombre} con Dr. {doctor_nombre} el {fecha} a las {hora}."
 
     notif_doctor_id = None
     if doctor_usuario_id:
@@ -97,8 +95,6 @@ async def notificar_cita_creada(
         "timestamp": datetime.datetime.now().isoformat()
     }
 
-    await manager.broadcast(payload_base)
-
     if doctor_usuario_id:
         payload_doc = dict(payload_base)
         payload_doc["body"] = texto_doctor
@@ -112,6 +108,14 @@ async def notificar_cita_creada(
             payload_cre["notificacion_id"] = notif_creador_id
         await manager.send_personal_message(payload_cre, f"user_{creador_usuario_id}")
 
+    if paciente_usuario_id:
+        payload_pac = dict(payload_base)
+        payload_pac["body"] = f"Tu cita médica con Dr. {doctor_nombre} ha sido confirmada para el {fecha} a las {hora}."
+        await manager.send_personal_message(payload_pac, f"user_{paciente_usuario_id}")
+
+    if not doctor_usuario_id and not creador_usuario_id and not paciente_usuario_id:
+        await manager.broadcast(payload_base)
+
 
 async def notificar_cita_reprogramada(
     db: Session,
@@ -124,9 +128,8 @@ async def notificar_cita_reprogramada(
     creador_usuario_id: Optional[int] = None,
     paciente_usuario_id: Optional[int] = None
 ):
-    """Guarda notificaciones en BD y emite evento WebSocket al reprogramar fecha u hora de una cita."""
-    texto_doctor = f"La cita #{cita_id} con {paciente_nombre} fue reprogramada para el {nueva_fecha} a las {nueva_hora}."
-    texto_recepcion = f"La cita #{cita_id} ({paciente_nombre}) fue reprogramada para el {nueva_fecha} a las {nueva_hora}."
+    texto_doctor = f"La cita {cita_id} con {paciente_nombre} fue reprogramada para el {nueva_fecha} a las {nueva_hora}."
+    texto_recepcion = f"La cita {cita_id} ({paciente_nombre}) fue reprogramada para el {nueva_fecha} a las {nueva_hora}."
 
     notif_doctor_id = None
     if doctor_usuario_id:
@@ -173,8 +176,6 @@ async def notificar_cita_reprogramada(
         "timestamp": datetime.datetime.now().isoformat()
     }
 
-    await manager.broadcast(payload_base)
-
     if doctor_usuario_id:
         payload_doc = dict(payload_base)
         payload_doc["body"] = texto_doctor
@@ -188,6 +189,14 @@ async def notificar_cita_reprogramada(
             payload_cre["notificacion_id"] = notif_creador_id
         await manager.send_personal_message(payload_cre, f"user_{creador_usuario_id}")
 
+    if paciente_usuario_id:
+        payload_pac = dict(payload_base)
+        payload_pac["body"] = f"Tu cita con Dr. {doctor_nombre} fue reprogramada para el {nueva_fecha} a las {nueva_hora}."
+        await manager.send_personal_message(payload_pac, f"user_{paciente_usuario_id}")
+
+    if not doctor_usuario_id and not creador_usuario_id and not paciente_usuario_id:
+        await manager.broadcast(payload_base)
+
 
 async def notificar_cita_cancelada(
     db: Session,
@@ -198,9 +207,8 @@ async def notificar_cita_cancelada(
     creador_usuario_id: Optional[int] = None,
     paciente_usuario_id: Optional[int] = None
 ):
-    """Guarda notificaciones en BD y emite evento WebSocket al cancelar una cita médica."""
-    texto_doctor = f"La cita #{cita_id} de {paciente_nombre} ha sido cancelada."
-    texto_recepcion = f"La cita #{cita_id} de {paciente_nombre} con Dr. {doctor_nombre} ha sido cancelada."
+    texto_doctor = f"La cita {cita_id} de {paciente_nombre} ha sido cancelada."
+    texto_recepcion = f"La cita {cita_id} de {paciente_nombre} con Dr. {doctor_nombre} ha sido cancelada."
 
     if doctor_usuario_id:
         guardar_notificacion_bd(
@@ -239,8 +247,6 @@ async def notificar_cita_cancelada(
         "timestamp": datetime.datetime.now().isoformat()
     }
 
-    await manager.broadcast(payload_base)
-
     if doctor_usuario_id:
         payload_doc = dict(payload_base)
         payload_doc["body"] = texto_doctor
@@ -248,6 +254,14 @@ async def notificar_cita_cancelada(
 
     if creador_usuario_id and creador_usuario_id != doctor_usuario_id:
         await manager.send_personal_message(payload_base, f"user_{creador_usuario_id}")
+
+    if paciente_usuario_id:
+        payload_pac = dict(payload_base)
+        payload_pac["body"] = f"Tu cita con Dr. {doctor_nombre} ha sido cancelada."
+        await manager.send_personal_message(payload_pac, f"user_{paciente_usuario_id}")
+
+    if not doctor_usuario_id and not creador_usuario_id and not paciente_usuario_id:
+        await manager.broadcast(payload_base)
 
 
 async def notificar_recordatorio_cita(
@@ -261,9 +275,8 @@ async def notificar_recordatorio_cita(
     doctor_usuario_id: Optional[int] = None,
     paciente_usuario_id: Optional[int] = None
 ):
-    """Guarda y emite recordatorio preventivo de cita próxima (CU-11) para el doctor y paciente."""
     texto_tiempo = "en 1 hora" if horas_restantes <= 1 else f"en aprox. {horas_restantes} horas"
-    texto = f"Recordatorio: Cita #{cita_id} ({texto_tiempo}) para {paciente_nombre} con Dr. {doctor_nombre} el {fecha} a las {hora}."
+    texto = f"Recordatorio: Cita {cita_id} ({texto_tiempo}) para {paciente_nombre} con Dr. {doctor_nombre} el {fecha} a las {hora}."
 
     if doctor_usuario_id:
         guardar_notificacion_bd(
@@ -296,8 +309,9 @@ async def notificar_recordatorio_cita(
         "timestamp": datetime.datetime.now().isoformat()
     }
 
-    await manager.broadcast(payload)
     if doctor_usuario_id:
         await manager.send_personal_message(payload, f"user_{doctor_usuario_id}")
     if paciente_usuario_id:
         await manager.send_personal_message(payload, f"user_{paciente_usuario_id}")
+    if not doctor_usuario_id and not paciente_usuario_id:
+        await manager.broadcast(payload)

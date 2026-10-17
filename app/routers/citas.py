@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -20,36 +21,34 @@ from app.services.citas_notification_service import (
     notificar_cita_reprogramada,
     notificar_cita_cancelada
 )
-
+from app.services.email_service import (
+    notificar_correo_cita_creada,
+    notificar_correo_cita_reprogramada
+)
 
 router = APIRouter(
     prefix="/api/citas",
     tags=["Citas"]
 )
 
-
 def verificar_permiso_recepcion(usuario_actual: Usuario):
-    """Valida que el usuario tenga privilegios de administrador o recepcionista."""
     if usuario_actual.rol_id_FK not in [1, 4]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el administrador o recepcionista pueden gestionar citas"
         )
 
-
 @router.get("/mis-consultas")
 def obtener_mis_consultas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Devuelve las citas asignadas al doctor autenticado."""
     if usuario_actual.rol_id_FK != 2:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los doctores pueden ver sus consultas"
         )
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     doctor = (
         db.query(Doctor)
         .filter(Doctor.usuario_id_FK == usuario_actual.id_PK)
@@ -62,7 +61,6 @@ def obtener_mis_consultas(
             detail="No tienes un perfil de doctor registrado"
         )
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     citas = (
         db.query(Cita)
         .filter(Cita.doctor_id_FK == doctor.id_PK)
@@ -72,16 +70,13 @@ def obtener_mis_consultas(
 
     return citas
 
-
 @router.get("/")
 def obtener_citas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Obtiene la lista completa de citas ordenadas cronológicamente."""
     verificar_permiso_recepcion(usuario_actual)
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     citas = (
         db.query(Cita)
         .order_by(Cita.fecha, Cita.hora_inicio)
@@ -89,7 +84,6 @@ def obtener_citas(
     )
 
     return citas
-
 
 @router.post(
     "/",
@@ -101,10 +95,8 @@ async def crear_cita(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Registra una cita médica, la agrega a Google Calendar (CU-05, CU-12) y notifica por WebSockets."""
     verificar_permiso_recepcion(usuario_actual)
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     paciente = (
         db.query(Paciente)
         .filter(Paciente.id_PK == datos.paciente_id_FK)
@@ -117,7 +109,6 @@ async def crear_cita(
             detail="El paciente no existe"
         )
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     doctor = (
         db.query(Doctor)
         .filter(Doctor.id_PK == datos.doctor_id_FK)
@@ -130,19 +121,19 @@ async def crear_cita(
             detail="El doctor no existe"
         )
 
-    paciente_nombre = f"{paciente.nombre} {paciente.apellido}"
-    doctor_nombre = doctor.nombre
+    p_nom = getattr(paciente, "nombre", "") or ""
+    p_ape = getattr(paciente, "apellido", "") or ""
+    paciente_nombre = f"{p_nom} {p_ape}".strip() or f"Paciente {datos.paciente_id_FK}"
+    doctor_nombre = getattr(doctor, "nombre", None) or f"Doctor {datos.doctor_id_FK}"
     doctor_user_id = f"user_{doctor.usuario_id_FK}" if doctor.usuario_id_FK else None
     creador_user_id = f"user_{usuario_actual.id_PK}"
 
-    # Priorizar la cuenta de Google Calendar del Doctor asignado; si no, la del creador
     target_calendar_user = None
     if doctor_user_id and has_valid_credentials(doctor_user_id):
         target_calendar_user = doctor_user_id
     elif has_valid_credentials(creador_user_id):
         target_calendar_user = creador_user_id
 
-    # Sincronización con Google Calendar API (Fase 2 -> CU-12)
     google_event_id = None
     if target_calendar_user:
         google_event_id = sincronizar_creacion_google_calendar(
@@ -155,7 +146,6 @@ async def crear_cita(
             motivo=datos.motivo
         )
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     nueva_cita = Cita(
         paciente_id_FK=datos.paciente_id_FK,
         doctor_id_FK=datos.doctor_id_FK,
@@ -173,7 +163,6 @@ async def crear_cita(
     db.commit()
     db.refresh(nueva_cita)
 
-    # Persistencia en BD y emisión reactiva por WebSocket
     await notificar_cita_creada(
         db=db,
         cita_id=nueva_cita.id_PK,
@@ -186,8 +175,26 @@ async def crear_cita(
         paciente_usuario_id=getattr(paciente, "usuario_id_FK", None)
     )
 
-    return nueva_cita
+    correo_paciente = getattr(paciente, "correo_electronico", None)
+    if not correo_paciente and paciente and getattr(paciente, "usuario_id_FK", None):
+        usuario_paciente = db.query(Usuario).filter(Usuario.id_PK == paciente.usuario_id_FK).first()
+        if usuario_paciente:
+            correo_paciente = usuario_paciente.correo_electronico
 
+    if correo_paciente:
+        asyncio.create_task(
+            notificar_correo_cita_creada(
+                destinatario=correo_paciente,
+                paciente_nombre=paciente_nombre,
+                doctor_nombre=doctor_nombre,
+                fecha=str(nueva_cita.fecha),
+                hora_inicio=nueva_cita.hora_inicio.strftime("%H:%M") if nueva_cita.hora_inicio else "",
+                hora_fin=nueva_cita.hora_fin.strftime("%H:%M") if nueva_cita.hora_fin else "",
+                motivo=nueva_cita.motivo or "Consulta médica general"
+            )
+        )
+
+    return nueva_cita
 
 @router.put("/{cita_id}", response_model=CitaResponse)
 @router.put("/{cita_id}/reprogramar", response_model=CitaResponse)
@@ -197,10 +204,8 @@ async def reprogramar_cita(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Reprograma fecha y hora de una cita, actualiza Google Calendar (CU-07) y notifica por WebSockets."""
     verificar_permiso_recepcion(usuario_actual)
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
     if not cita:
         raise HTTPException(
@@ -208,12 +213,15 @@ async def reprogramar_cita(
             detail="La cita no existe"
         )
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
     doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
 
-    paciente_nombre = f"{paciente.nombre} {paciente.apellido}" if paciente else f"Paciente #{cita.paciente_id_FK}"
-    doctor_nombre = doctor.nombre if doctor else f"Doctor #{cita.doctor_id_FK}"
+    p_nom = getattr(paciente, "nombre", "") if paciente else ""
+    p_ape = getattr(paciente, "apellido", "") if paciente else ""
+    paciente_nombre = f"{p_nom} {p_ape}".strip() if (p_nom or p_ape) else f"Paciente {cita.paciente_id_FK}"
+    doctor_nombre = getattr(doctor, "nombre", None) if doctor else f"Doctor {cita.doctor_id_FK}"
+    if not doctor_nombre:
+        doctor_nombre = f"Doctor {cita.doctor_id_FK}"
     doctor_user_id = f"user_{doctor.usuario_id_FK}" if (doctor and doctor.usuario_id_FK) else None
     creador_user_id = f"user_{usuario_actual.id_PK}"
 
@@ -225,14 +233,12 @@ async def reprogramar_cita(
     if datos.notas is not None:
         cita.notas = datos.notas
 
-    # Priorizar la cuenta de Google Calendar del Doctor asignado; si no, la del creador
     target_calendar_user = None
     if doctor_user_id and has_valid_credentials(doctor_user_id):
         target_calendar_user = doctor_user_id
     elif has_valid_credentials(creador_user_id):
         target_calendar_user = creador_user_id
 
-    # Sincronización en Google Calendar al reprogramar (CU-07, CU-12)
     if target_calendar_user:
         nuevo_event_id = sincronizar_actualizacion_google_calendar(
             user_id=target_calendar_user,
@@ -250,7 +256,6 @@ async def reprogramar_cita(
     db.commit()
     db.refresh(cita)
 
-    # Persistencia en BD y emisión reactiva por WebSocket
     await notificar_cita_reprogramada(
         db=db,
         cita_id=cita.id_PK,
@@ -263,8 +268,26 @@ async def reprogramar_cita(
         paciente_usuario_id=getattr(paciente, "usuario_id_FK", None) if paciente else None
     )
 
-    return cita
+    correo_paciente = getattr(paciente, "correo_electronico", None)
+    if not correo_paciente and paciente and getattr(paciente, "usuario_id_FK", None):
+        usuario_paciente = db.query(Usuario).filter(Usuario.id_PK == paciente.usuario_id_FK).first()
+        if usuario_paciente:
+            correo_paciente = usuario_paciente.correo_electronico
 
+    if correo_paciente:
+        asyncio.create_task(
+            notificar_correo_cita_reprogramada(
+                destinatario=correo_paciente,
+                paciente_nombre=paciente_nombre,
+                doctor_nombre=doctor_nombre,
+                nueva_fecha=str(cita.fecha),
+                nueva_hora_inicio=cita.hora_inicio.strftime("%H:%M") if cita.hora_inicio else "",
+                nueva_hora_fin=cita.hora_fin.strftime("%H:%M") if cita.hora_fin else "",
+                motivo=cita.motivo or "Consulta médica general"
+            )
+        )
+
+    return cita
 
 @router.delete("/{cita_id}", status_code=status.HTTP_200_OK)
 async def eliminar_cita(
@@ -272,10 +295,8 @@ async def eliminar_cita(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Elimina o cancela una cita, sincronizando con Google Calendar (CU-08) y notificando vía WebSocket."""
     verificar_permiso_recepcion(usuario_actual)
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
     if not cita:
         raise HTTPException(
@@ -283,28 +304,28 @@ async def eliminar_cita(
             detail="La cita no existe"
         )
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
     doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
 
-    paciente_nombre = f"{paciente.nombre} {paciente.apellido}" if paciente else f"Paciente #{cita.paciente_id_FK}"
-    doctor_nombre = doctor.nombre if doctor else f"Doctor #{cita.doctor_id_FK}"
+    p_nom = getattr(paciente, "nombre", "") if paciente else ""
+    p_ape = getattr(paciente, "apellido", "") if paciente else ""
+    paciente_nombre = f"{p_nom} {p_ape}".strip() if (p_nom or p_ape) else f"Paciente {cita.paciente_id_FK}"
+    doctor_nombre = getattr(doctor, "nombre", None) if doctor else f"Doctor {cita.doctor_id_FK}"
+    if not doctor_nombre:
+        doctor_nombre = f"Doctor {cita.doctor_id_FK}"
     doctor_user_id = f"user_{doctor.usuario_id_FK}" if (doctor and doctor.usuario_id_FK) else None
     creador_user_id = f"user_{usuario_actual.id_PK}"
 
-    # Priorizar la cuenta de Google Calendar del Doctor asignado; si no, la del creador
     target_calendar_user = None
     if doctor_user_id and has_valid_credentials(doctor_user_id):
         target_calendar_user = doctor_user_id
     elif has_valid_credentials(creador_user_id):
         target_calendar_user = creador_user_id
 
-    # Eliminación de Google Calendar (CU-08)
     if cita.google_event_id and target_calendar_user:
         sincronizar_eliminacion_google_calendar(user_id=target_calendar_user, event_id=cita.google_event_id)
 
     try:
-        # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
         cola = db.query(Cola).filter(Cola.cita_id_FK == cita_id).first()
         if cola:
             db.delete(cola)
@@ -313,7 +334,6 @@ async def eliminar_cita(
         db.delete(cita)
         db.commit()
 
-        # Notificación reactiva por WebSocket y persistencia en BD
         await notificar_cita_cancelada(
             db=db,
             cita_id=cita_id,
@@ -325,7 +345,7 @@ async def eliminar_cita(
         )
 
         return {
-            "mensaje": f"Cita #{cita_id} eliminada correctamente",
+            "mensaje": f"Cita {cita_id} eliminada correctamente",
             "id_eliminado": cita_id,
             "turno_eliminado": cola.numero_cola if cola else None
         }
@@ -337,16 +357,14 @@ async def eliminar_cita(
             detail=f"No se pudo eliminar la cita: {str(e)}"
         )
 
-
 @router.post("/disparar-recordatorios", status_code=status.HTTP_200_OK)
 async def disparar_recordatorios_manual(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Ejecuta inmediatamente la verificación de recordatorios de citas próximas (CU-11)."""
     from app.services.reminder_service import verificar_y_emitir_recordatorios
     await verificar_y_emitir_recordatorios(db)
     return {
         "status": "success",
         "mensaje": "Verificación de recordatorios de citas ejecutada correctamente."
-    }
+    }

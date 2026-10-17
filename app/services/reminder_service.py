@@ -8,26 +8,26 @@ from app.database.connection import SessionLocal
 from app.models.cita import Cita
 from app.models.paciente import Paciente
 from app.models.doctor import Doctor
+from app.models.usuario import Usuario
 from app.services.citas_notification_service import notificar_recordatorio_cita
+from app.services.email_service import notificar_correo_recordatorio
 
 logger = logging.getLogger("vitalia.reminder_service")
 
+recordatorios_7d_enviados: Set[int] = set()
 recordatorios_24h_enviados: Set[int] = set()
 recordatorios_1h_enviados: Set[int] = set()
 _tarea_recordatorios_activa = False
 
-
 async def verificar_y_emitir_recordatorios(db: Session):
-    """Consulta citas próximas en las siguientes 24 horas y emite recordatorios por WebSocket (CU-11)."""
     ahora = datetime.now()
-    limite_24h = ahora + timedelta(hours=24)
+    limite_7d = ahora + timedelta(days=8)
 
-    # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
     citas_proximas = (
         db.query(Cita)
         .filter(
             Cita.fecha >= ahora.date(),
-            Cita.fecha <= limite_24h.date(),
+            Cita.fecha <= limite_7d.date(),
             Cita.estado.notin_(["cancelada", "atendido", "finalizada"])
         )
         .all()
@@ -45,54 +45,115 @@ async def verificar_y_emitir_recordatorios(db: Session):
         if diferencia_segundos < 0:
             continue
 
-        horas_restantes = int(diferencia_segundos // 3600)
-
-        # TODO: Reemplazar con la consulta a tu ORM (SQLAlchemy/Prisma)
         paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
         doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
 
-        paciente_nombre = f"{paciente.nombre} {paciente.apellido}" if paciente else f"Paciente #{cita.paciente_id_FK}"
-        doctor_nombre = doctor.nombre if doctor else f"Doctor #{cita.doctor_id_FK}"
-
-        target_ids = []
-        if paciente and getattr(paciente, "usuario_id_FK", None):
-            target_ids.append(f"user_{paciente.usuario_id_FK}")
-        if doctor and getattr(doctor, "usuario_id_FK", None):
-            target_ids.append(f"user_{doctor.usuario_id_FK}")
+        paciente_nombre = f"{paciente.nombre} {paciente.apellido}" if paciente else f"Paciente {cita.paciente_id_FK}"
+        doctor_nombre = doctor.nombre if doctor else f"Doctor {cita.doctor_id_FK}"
 
         doctor_uid = doctor.usuario_id_FK if doctor else None
         paciente_uid = getattr(paciente, "usuario_id_FK", None) if paciente else None
+        
+        correo_paciente = getattr(paciente, "correo_electronico", None)
+        if not correo_paciente and paciente and paciente_uid:
+            usuario_paciente = db.query(Usuario).filter(Usuario.id_PK == paciente_uid).first()
+            if usuario_paciente:
+                correo_paciente = usuario_paciente.correo_electronico
 
-        if diferencia_segundos <= 3600 and cita.id_PK not in recordatorios_1h_enviados:
+        hora_str = hora_cita.strftime("%H:%M")
+        fecha_str = fecha_cita.isoformat()
+        motivo_str = cita.motivo or "Consulta médica general"
+
+        if 0 < diferencia_segundos <= 3600 and cita.id_PK not in recordatorios_1h_enviados:
             recordatorios_1h_enviados.add(cita.id_PK)
-            await notificar_recordatorio_cita(
-                db=db,
-                cita_id=cita.id_PK,
-                paciente_nombre=paciente_nombre,
-                doctor_nombre=doctor_nombre,
-                fecha=fecha_cita.isoformat(),
-                hora=hora_cita.strftime("%H:%M"),
-                horas_restantes=max(1, horas_restantes),
-                doctor_usuario_id=doctor_uid,
-                paciente_usuario_id=paciente_uid
-            )
-        elif diferencia_segundos <= 86400 and cita.id_PK not in recordatorios_24h_enviados:
             recordatorios_24h_enviados.add(cita.id_PK)
+            recordatorios_7d_enviados.add(cita.id_PK)
+
             await notificar_recordatorio_cita(
                 db=db,
                 cita_id=cita.id_PK,
                 paciente_nombre=paciente_nombre,
                 doctor_nombre=doctor_nombre,
-                fecha=fecha_cita.isoformat(),
-                hora=hora_cita.strftime("%H:%M"),
-                horas_restantes=max(1, horas_restantes),
+                fecha=fecha_str,
+                hora=hora_str,
+                horas_restantes=1,
                 doctor_usuario_id=doctor_uid,
                 paciente_usuario_id=paciente_uid
             )
 
+            if correo_paciente:
+                asyncio.create_task(
+                    notificar_correo_recordatorio(
+                        destinatario=correo_paciente,
+                        paciente_nombre=paciente_nombre,
+                        doctor_nombre=doctor_nombre,
+                        fecha=fecha_str,
+                        hora=hora_str,
+                        intervalo_texto="1 hora",
+                        motivo=motivo_str
+                    )
+                )
+
+        elif 3600 < diferencia_segundos <= 86400 and cita.id_PK not in recordatorios_24h_enviados:
+            recordatorios_24h_enviados.add(cita.id_PK)
+            recordatorios_7d_enviados.add(cita.id_PK)
+
+            horas_restantes = max(1, int(diferencia_segundos // 3600))
+            await notificar_recordatorio_cita(
+                db=db,
+                cita_id=cita.id_PK,
+                paciente_nombre=paciente_nombre,
+                doctor_nombre=doctor_nombre,
+                fecha=fecha_str,
+                hora=hora_str,
+                horas_restantes=horas_restantes,
+                doctor_usuario_id=doctor_uid,
+                paciente_usuario_id=paciente_uid
+            )
+
+            if correo_paciente:
+                asyncio.create_task(
+                    notificar_correo_recordatorio(
+                        destinatario=correo_paciente,
+                        paciente_nombre=paciente_nombre,
+                        doctor_nombre=doctor_nombre,
+                        fecha=fecha_str,
+                        hora=hora_str,
+                        intervalo_texto="1 día (24 horas)",
+                        motivo=motivo_str
+                    )
+                )
+
+        elif 86400 < diferencia_segundos <= 604800 and cita.id_PK not in recordatorios_7d_enviados:
+            recordatorios_7d_enviados.add(cita.id_PK)
+
+            horas_restantes = max(24, int(diferencia_segundos // 3600))
+            await notificar_recordatorio_cita(
+                db=db,
+                cita_id=cita.id_PK,
+                paciente_nombre=paciente_nombre,
+                doctor_nombre=doctor_nombre,
+                fecha=fecha_str,
+                hora=hora_str,
+                horas_restantes=horas_restantes,
+                doctor_usuario_id=doctor_uid,
+                paciente_usuario_id=paciente_uid
+            )
+
+            if correo_paciente:
+                asyncio.create_task(
+                    notificar_correo_recordatorio(
+                        destinatario=correo_paciente,
+                        paciente_nombre=paciente_nombre,
+                        doctor_nombre=doctor_nombre,
+                        fecha=fecha_str,
+                        hora=hora_str,
+                        intervalo_texto="1 semana (7 días)",
+                        motivo=motivo_str
+                    )
+                )
 
 async def ciclo_recordatorios_background(intervalo_segundos: int = 60):
-    """Bucle asíncrono en segundo plano para verificar periódicamente recordatorios de citas."""
     global _tarea_recordatorios_activa
     _tarea_recordatorios_activa = True
     logger.info("Servicio de recordatorios automáticos de citas iniciado en segundo plano.")
@@ -108,8 +169,6 @@ async def ciclo_recordatorios_background(intervalo_segundos: int = 60):
 
         await asyncio.sleep(intervalo_segundos)
 
-
 def detener_ciclo_recordatorios():
-    """Detiene la ejecución del ciclo en segundo plano de recordatorios."""
     global _tarea_recordatorios_activa
     _tarea_recordatorios_activa = False

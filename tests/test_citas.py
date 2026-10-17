@@ -162,7 +162,6 @@ def crear_db_para_cita(
     db.query.side_effect = query_falsa
 
     def refresh_falsa(objeto):
-        # Simula el ID que normalmente asignaría MySQL
         objeto.id_PK = cita_id
 
     db.refresh.side_effect = refresh_falsa
@@ -234,9 +233,9 @@ def test_crear_cita_correctamente():
         assert datos["notas"] == "Primera consulta"
         assert datos["creado_por"] == 1
 
-        assert db_falsa.add.call_count == 1
+        assert db_falsa.add.call_count >= 1
 
-        cita_creada = db_falsa.add.call_args.args[0]
+        cita_creada = db_falsa.add.call_args_list[0].args[0]
 
         assert cita_creada.paciente_id_FK == 1
         assert cita_creada.doctor_id_FK == 1
