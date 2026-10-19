@@ -155,3 +155,35 @@ def limpiar_todas_notificaciones(
 
     db.commit()
     return {"mensaje": f"Se eliminaron {eliminadas} notificaciones"}
+
+
+# ---------------------------------------------------------------------------
+# C2 — Endpoints adicionales basados en NotificacionService
+# ---------------------------------------------------------------------------
+from app.schemas.notificacion import NotificacionOut  # noqa: E402
+from app.services.notificacion_service import NotificacionService  # noqa: E402
+
+
+@router.get("", response_model=List[NotificacionOut])
+def listar_notificaciones_c2(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """Lista las notificaciones del usuario autenticado (más recientes primero)."""
+    return NotificacionService(db).listar_de_usuario(usuario_actual.id_PK)
+
+
+@router.patch("/{notif_id}/leer", response_model=NotificacionOut)
+def marcar_leida_c2(
+    notif_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """Marca como leída una notificación (valida que pertenezca al usuario)."""
+    notif = NotificacionService(db).marcar_leida(notif_id, usuario_actual.id_PK)
+    if not notif:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notificación no encontrada"
+        )
+    return notif

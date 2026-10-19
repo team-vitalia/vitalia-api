@@ -1,6 +1,6 @@
-from datetime import date, time
+from datetime import date, datetime, time
 
-from sqlalchemy import Date, ForeignKey, String, Text, Time
+from sqlalchemy import Boolean, Date, ForeignKey, String, Text, Time
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.connection import Base
@@ -40,6 +40,20 @@ class Cita(Base):
         String(50)
     )
 
+    sala_id_FK: Mapped[int | None] = mapped_column(
+        ForeignKey("salas.id_PK"), nullable=True
+    )
+
+    requiere_equipo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
+
+    equipo_id_FK: Mapped[int | None] = mapped_column(
+        ForeignKey("equipamiento_sala.id_PK"), nullable=True
+    )
+
+    accion_equipo: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     motivo: Mapped[str | None] = mapped_column(Text)
     notas: Mapped[str | None] = mapped_column(Text)
 
@@ -51,3 +65,27 @@ class Cita(Base):
     doctor = relationship("Doctor")
     evento_calendario = relationship("EventoCalendario")
     usuario_creador = relationship("Usuario")
+    sala = relationship("Sala")
+    equipo = relationship("EquipamientoSala")
+
+    @property
+    def sala_nombre(self) -> str | None:
+        return self.sala.nombre if self.sala else None
+
+    @property
+    def equipo_nombre(self) -> str | None:
+        return self.equipo.nombre_equipo if self.equipo else None
+
+    @property
+    def no_realizada(self) -> bool:
+        """True si la cita no se llevó a cabo: marcada como no asistió/cancelada
+        o con fecha vencida sin haberse completado."""
+        estado = (self.estado or "").lower()
+        if estado in ("no_asistio", "cancelada"):
+            return True
+        if estado in ("completada", "en_curso", "atendida"):
+            return False
+        if self.fecha:
+            fin = datetime.combine(self.fecha, self.hora_fin or time.max)
+            return fin < datetime.now()
+        return False

@@ -17,10 +17,10 @@ router = APIRouter(
 def verificar_permiso_recepcion(
     usuario_actual: Usuario
 ):
-    if usuario_actual.rol_id_FK not in [1, 4]:
+    if usuario_actual.rol_id_FK not in [1, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador o recepcionista pueden gestionar pacientes"
+            detail="Solo el administrador, coordinador o recepcionista pueden gestionar pacientes"
         )
 
 

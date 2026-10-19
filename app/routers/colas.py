@@ -31,7 +31,7 @@ def registrar_llegada(
     """
 
     # 1. Validar permisos
-    if usuario_actual.rol_id_FK not in [1, 4]:
+    if usuario_actual.rol_id_FK not in [1, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo recepción o admin pueden registrar llegadas"
@@ -111,7 +111,7 @@ def listar_colas(
     Devuelve todas las colas activas del día (en espera o llamadas).
     """
 
-    if usuario_actual.rol_id_FK not in [1, 2, 4]:
+    if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permiso para ver las colas"
@@ -142,7 +142,7 @@ def actualizar_cola(
     Actualiza el estado de una cola (ej. llamar al paciente).
     """
 
-    if usuario_actual.rol_id_FK not in [1, 2, 4]:
+    if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permiso"
@@ -184,7 +184,7 @@ def listar_colas_atendidas(
     Devuelve las colas que ya fueron atendidas hoy.
     """
 
-    if usuario_actual.rol_id_FK not in [1, 2, 4]:
+    if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="No tienes permiso para ver las colas atendidas"

@@ -22,6 +22,13 @@ from app.routers.colas import router as colas_router
 from app.routers.almacen import router as almacen_router
 from app.routers.notificaciones import router as notificaciones_router
 
+# Módulo C2 (Salas, Equipamiento, Auditoría y Reportes)
+from app.routers.salas import router as salas_router
+from app.routers.equipamiento import router as equipamiento_router
+from app.routers.auditoria import router as auditoria_router
+from app.routers.reportes import router as reportes_router
+from app.routers.doctor_salas import router as doctor_salas_router
+
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
@@ -59,6 +66,13 @@ app.include_router(colas_router)
 # Registro de rutas del Módulo A3 (Almacén e Inventarios)
 app.include_router(almacen_router)
 app.include_router(notificaciones_router)
+
+# Registro de rutas del Módulo C2
+app.include_router(salas_router)
+app.include_router(equipamiento_router)
+app.include_router(auditoria_router)
+app.include_router(reportes_router)
+app.include_router(doctor_salas_router)
 
 
 @app.on_event("startup")

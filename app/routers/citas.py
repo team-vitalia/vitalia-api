@@ -8,7 +8,10 @@ from app.models.paciente import Paciente
 from app.models.doctor import Doctor
 from app.models.usuario import Usuario
 from app.models.cola import Cola
-from app.schemas.cita import CitaCrear, CitaResponse, CitaReprogramar, CitaActualizar
+from app.schemas.cita import CitaCrear, CitaResponse, CitaReprogramar, CitaActualizar, CitaEstado
+from app.models.equipamiento_sala import EquipamientoSala
+from app.models.sala import Sala
+from app.routers.doctor_salas import sala_valida_para_cita
 from app.core.dependencies import get_current_user
 from app.services.citas_calendar_service import (
     sincronizar_creacion_google_calendar,
@@ -32,13 +35,89 @@ router = APIRouter(
 )
 
 def verificar_permiso_recepcion(usuario_actual: Usuario):
-    if usuario_actual.rol_id_FK not in [1, 4]:
+    if usuario_actual.rol_id_FK not in [1, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador o recepcionista pueden gestionar citas"
+            detail="Solo el administrador, coordinador o recepcionista pueden gestionar citas"
         )
 
-@router.get("/mis-consultas")
+ESTADOS_CITA = ("programada", "confirmada", "en_curso", "completada", "cancelada", "no_asistio")
+
+
+def validar_sala_equipo(
+    db: Session,
+    doctor_id: int,
+    fecha,
+    hora_inicio,
+    hora_fin,
+    sala_id,
+    requiere_equipo: bool,
+    equipo_id,
+    accion_equipo,
+    excluir_cita_id: int | None = None,
+) -> str | None:
+    """Valida sala/equipo de una cita. Devuelve la acción normalizada (o None)."""
+    if hora_fin <= hora_inicio:
+        raise HTTPException(status_code=422, detail="La hora de fin debe ser posterior a la de inicio")
+
+    accion = (accion_equipo or "").strip() or None
+
+    if sala_id is not None:
+        sala = db.get(Sala, sala_id)
+        if not sala:
+            raise HTTPException(status_code=404, detail="La sala no existe")
+        if (sala.estado or "disponible") in ("mantenimiento", "inactiva"):
+            raise HTTPException(status_code=409, detail=f"La sala «{sala.nombre}» no está disponible")
+        if not sala_valida_para_cita(db, doctor_id, sala_id, fecha, hora_inicio, hora_fin):
+            raise HTTPException(
+                status_code=409,
+                detail="La sala no está asignada al doctor en ese día/horario",
+            )
+        choque = (
+            db.query(Cita)
+            .filter(
+                Cita.sala_id_FK == sala_id,
+                Cita.fecha == fecha,
+                Cita.hora_inicio < hora_fin,
+                Cita.hora_fin > hora_inicio,
+                Cita.estado.notin_(["cancelada", "no_asistio"]) | Cita.estado.is_(None),
+            )
+        )
+        if excluir_cita_id:
+            choque = choque.filter(Cita.id_PK != excluir_cita_id)
+        if choque.first():
+            raise HTTPException(status_code=409, detail="La sala ya está ocupada en ese horario")
+
+    if requiere_equipo:
+        if sala_id is None:
+            raise HTTPException(status_code=422, detail="Selecciona una sala para usar equipo")
+        if equipo_id is None:
+            raise HTTPException(status_code=422, detail="Selecciona el equipo a utilizar")
+        if not accion:
+            raise HTTPException(status_code=422, detail="Indica la acción a realizar con el equipo")
+        equipo = db.get(EquipamientoSala, equipo_id)
+        if not equipo or equipo.sala_id_FK != sala_id:
+            raise HTTPException(status_code=400, detail="El equipo no pertenece a la sala seleccionada")
+        if (equipo.estado or "operativo").lower() in ("mantenimiento", "averiado", "baja", "fuera_de_servicio"):
+            raise HTTPException(status_code=409, detail="El equipo no está disponible")
+        choque_eq = (
+            db.query(Cita)
+            .filter(
+                Cita.equipo_id_FK == equipo_id,
+                Cita.fecha == fecha,
+                Cita.hora_inicio < hora_fin,
+                Cita.hora_fin > hora_inicio,
+                Cita.estado.notin_(["cancelada", "no_asistio"]) | Cita.estado.is_(None),
+            )
+        )
+        if excluir_cita_id:
+            choque_eq = choque_eq.filter(Cita.id_PK != excluir_cita_id)
+        if choque_eq.first():
+            raise HTTPException(status_code=409, detail="El equipo ya está reservado en ese horario")
+    return accion
+
+
+@router.get("/mis-consultas", response_model=list[CitaResponse])
 def obtener_mis_consultas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
@@ -70,7 +149,37 @@ def obtener_mis_consultas(
 
     return citas
 
-@router.get("/")
+@router.get("/mis-citas", response_model=list[CitaResponse])
+def obtener_mis_citas(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """Citas del paciente autenticado (incluye si no se realizaron)."""
+    if usuario_actual.rol_id_FK != 3:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los pacientes pueden ver sus citas"
+        )
+
+    paciente = (
+        db.query(Paciente)
+        .filter(Paciente.usuario_id_FK == usuario_actual.id_PK)
+        .first()
+    )
+    if not paciente:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No tienes un perfil de paciente registrado"
+        )
+
+    return (
+        db.query(Cita)
+        .filter(Cita.paciente_id_FK == paciente.id_PK)
+        .order_by(Cita.fecha.desc(), Cita.hora_inicio.desc())
+        .all()
+    )
+
+@router.get("/", response_model=list[CitaResponse])
 def obtener_citas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
@@ -121,6 +230,11 @@ async def crear_cita(
             detail="El doctor no existe"
         )
 
+    accion_equipo = validar_sala_equipo(
+        db, doctor.id_PK, datos.fecha, datos.hora_inicio, datos.hora_fin,
+        datos.sala_id_FK, datos.requiere_equipo, datos.equipo_id_FK, datos.accion_equipo,
+    )
+
     p_nom = getattr(paciente, "nombre", "") or ""
     p_ape = getattr(paciente, "apellido", "") or ""
     paciente_nombre = f"{p_nom} {p_ape}".strip() or f"Paciente {datos.paciente_id_FK}"
@@ -156,7 +270,11 @@ async def crear_cita(
         motivo=datos.motivo,
         notas=datos.notas,
         creado_por=usuario_actual.id_PK,
-        google_event_id=google_event_id
+        google_event_id=google_event_id,
+        sala_id_FK=datos.sala_id_FK,
+        requiere_equipo=bool(datos.requiere_equipo),
+        equipo_id_FK=datos.equipo_id_FK if datos.requiere_equipo else None,
+        accion_equipo=accion_equipo if datos.requiere_equipo else None,
     )
 
     db.add(nueva_cita)
@@ -225,6 +343,21 @@ async def reprogramar_cita(
     doctor_user_id = f"user_{doctor.usuario_id_FK}" if (doctor and doctor.usuario_id_FK) else None
     creador_user_id = f"user_{usuario_actual.id_PK}"
 
+    campos = datos.model_fields_set
+    sala_id = datos.sala_id_FK if "sala_id_FK" in campos else cita.sala_id_FK
+    req_eq = datos.requiere_equipo if datos.requiere_equipo is not None else cita.requiere_equipo
+    eq_id = datos.equipo_id_FK if "equipo_id_FK" in campos else cita.equipo_id_FK
+    accion = datos.accion_equipo if "accion_equipo" in campos else cita.accion_equipo
+    if sala_id is not None or req_eq:
+        accion = validar_sala_equipo(
+            db, cita.doctor_id_FK, datos.fecha, datos.hora_inicio, datos.hora_fin,
+            sala_id, req_eq, eq_id, accion, excluir_cita_id=cita.id_PK,
+        )
+    cita.sala_id_FK = sala_id
+    cita.requiere_equipo = bool(req_eq)
+    cita.equipo_id_FK = eq_id if req_eq else None
+    cita.accion_equipo = accion if req_eq else None
+
     cita.fecha = datos.fecha
     cita.hora_inicio = datos.hora_inicio
     cita.hora_fin = datos.hora_fin
@@ -287,6 +420,34 @@ async def reprogramar_cita(
             )
         )
 
+    return cita
+
+@router.patch("/{cita_id}/estado", response_model=CitaResponse)
+async def cambiar_estado_cita(
+    cita_id: int,
+    datos: CitaEstado,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """Cambia el estado de la cita (p. ej. marcar «no_asistio» o «completada»)."""
+    estado = datos.estado.strip().lower()
+    if estado not in ESTADOS_CITA:
+        raise HTTPException(status_code=422, detail=f"Estado inválido. Usa: {', '.join(ESTADOS_CITA)}")
+
+    cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
+    if not cita:
+        raise HTTPException(status_code=404, detail="La cita no existe")
+
+    if usuario_actual.rol_id_FK == 2:
+        doctor = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+        if not doctor or doctor.id_PK != cita.doctor_id_FK:
+            raise HTTPException(status_code=403, detail="Solo puedes modificar tus propias citas")
+    else:
+        verificar_permiso_recepcion(usuario_actual)
+
+    cita.estado = estado
+    db.commit()
+    db.refresh(cita)
     return cita
 
 @router.delete("/{cita_id}", status_code=status.HTTP_200_OK)

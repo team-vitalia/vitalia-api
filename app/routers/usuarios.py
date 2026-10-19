@@ -30,11 +30,11 @@ def obtener_usuarios(
     usuario_actual: Usuario = Depends(get_current_user)
 ):
     
-    # Solo el administrador puede consultar los usuarios
-    if usuario_actual.rol_id_FK != 1:
+    # Solo el administrador o coordinador pueden consultar los usuarios
+    if usuario_actual.rol_id_FK not in [1, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador puede consultar los usuarios"
+            detail="Solo el administrador o coordinador pueden consultar los usuarios"
         )
 
     usuarios = (
@@ -68,11 +68,18 @@ def crear_usuario(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    # Solo el administrador puede crear usuarios
-    if usuario_actual.rol_id_FK != 1:
+    # Solo el administrador o coordinador pueden crear usuarios
+    if usuario_actual.rol_id_FK not in [1, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador puede crear usuarios"
+            detail="Solo el administrador o coordinador pueden crear usuarios"
+        )
+
+    # El coordinador no puede crear administradores ni otros coordinadores
+    if usuario_actual.rol_id_FK == 5 and datos.rol_id_FK in [1, 5]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El coordinador no puede crear administradores ni coordinadores"
         )
 
     # Verificar correo
@@ -278,10 +285,10 @@ def actualizar_usuario(
     cambiar el rol cuando sea seguro y activar o desactivar cuentas.
     """
 
-    if usuario_actual.rol_id_FK != 1:
+    if usuario_actual.rol_id_FK not in [1, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador puede actualizar usuarios"
+            detail="Solo el administrador o coordinador pueden actualizar usuarios"
         )
 
     usuario = (
@@ -294,6 +301,18 @@ def actualizar_usuario(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="El usuario no existe"
+        )
+
+    # El coordinador no puede modificar cuentas de administradores ni de
+    # otros coordinadores (sí puede editar su propia cuenta).
+    if (
+        usuario_actual.rol_id_FK == 5
+        and usuario.rol_id_FK in [1, 5]
+        and usuario.id_PK != usuario_actual.id_PK
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El coordinador no puede modificar administradores ni coordinadores"
         )
 
     cambios = datos.model_dump(exclude_unset=True)
@@ -406,6 +425,16 @@ def actualizar_usuario(
             raise HTTPException(
                 status_code=400,
                 detail="El rol seleccionado no existe o está inactivo"
+            )
+
+        if (
+            usuario_actual.rol_id_FK == 5
+            and nuevo_rol_id in [1, 5]
+            and nuevo_rol_id != usuario.rol_id_FK
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El coordinador no puede asignar el rol de administrador ni de coordinador"
             )
 
         if nuevo_rol_id != usuario.rol_id_FK:

@@ -21,10 +21,10 @@ router = APIRouter(prefix="/api/doctores", tags=["Doctores"])
 
 
 def exigir_administrador(usuario: Usuario):
-    if usuario.rol_id_FK != 1:
+    if usuario.rol_id_FK not in [1, 5]:
         raise HTTPException(
             status_code=403,
-            detail="Solo el administrador puede gestionar perfiles de médicos"
+            detail="Solo el administrador o coordinador pueden gestionar perfiles de médicos"
         )
 
 
@@ -162,7 +162,7 @@ def obtener_doctores(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    if usuario_actual.rol_id_FK not in [1, 4]:
+    if usuario_actual.rol_id_FK not in [1, 4, 5]:
         raise HTTPException(
             status_code=403,
             detail="No tienes permiso para consultar la lista de médicos"
