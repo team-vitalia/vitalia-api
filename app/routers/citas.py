@@ -1,9 +1,9 @@
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
-
+from fastapi import Query
 from pydantic import BaseModel
-from fastapi import Query # Asegúrate de tener esto importado arriba
 from typing import Optional
+from datetime import date
 
 from app.models.alergia import Alergia 
 from app.models.alergia_paciente import AlergiaPaciente
@@ -34,12 +34,15 @@ from app.services.email_service import (
     notificar_correo_cita_reprogramada
 )
 
-# --- ESQUEMAS PARA LAS NUEVAS RUTAS ---
+# --- ESQUEMAS Y CONSTANTES ---
 class EstadoCitaSchema(BaseModel):
     nuevo_estado: str
 
 class ReasignarCitaSchema(BaseModel):
     nuevo_doctor_id: int
+
+# Variable movida aquí para evitar el error de sintaxis
+ESTADOS_CITA = ("programada", "confirmada", "en_curso", "completada", "cancelada", "no_asistio")
 
 router = APIRouter(
     prefix="/api/citas",
@@ -54,12 +57,8 @@ def verificar_permiso_recepcion(usuario_actual: Usuario):
         )
 
 # ==============================================================================
-# RUTAS GET (Las específicas primero, la dinámica al final)
+# FUNCIONES AUXILIARES
 # ==============================================================================
-
-@router.get("/mis-consultas")
-ESTADOS_CITA = ("programada", "confirmada", "en_curso", "completada", "cancelada", "no_asistio")
-
 
 def validar_sala_equipo(
     db: Session,
@@ -133,6 +132,9 @@ def validar_sala_equipo(
             raise HTTPException(status_code=409, detail="El equipo ya está reservado en ese horario")
     return accion
 
+# ==============================================================================
+# RUTAS GET (Las específicas primero, la dinámica al final)
+# ==============================================================================
 
 @router.get("/mis-consultas", response_model=list[CitaResponse])
 def obtener_mis_consultas(
@@ -181,7 +183,6 @@ def obtener_citas_transferidas(
 
     nombre_doctor = doctor_actual.usuario.nombre if doctor_actual.usuario else ""
     
-    # Buscamos citas que en sus notas tengan "transferida por Dr. [Nombre del doctor logueado]"
     citas = (
         db.query(Cita)
         .filter(Cita.notas.contains(f"transferida por Dr. {nombre_doctor}"))
@@ -217,7 +218,6 @@ def obtener_citas_transferidas(
     return resultado
 
 
-@router.get("/")
 @router.get("/mis-citas", response_model=list[CitaResponse])
 def obtener_mis_citas(
     db: Session = Depends(get_db),
@@ -247,6 +247,7 @@ def obtener_mis_citas(
         .order_by(Cita.fecha.desc(), Cita.hora_inicio.desc())
         .all()
     )
+
 
 @router.get("/", response_model=list[CitaResponse])
 def obtener_citas(
@@ -323,7 +324,6 @@ def obtener_detalle_cita(
             ]
         } if paciente else None
     }
-
 
 # ==============================================================================
 # RUTAS POST
@@ -462,16 +462,14 @@ async def disparar_recordatorios_manual(
         "mensaje": "Verificación de recordatorios de citas ejecutada correctamente."
     }
 
-
 # ==============================================================================
 # RUTAS PUT
 # ==============================================================================
 
-
 @router.put("/{cita_id}/estado")
 def cambiar_estado_cita(
     cita_id: int,
-    nuevo_estado: str = Query(..., description="Nuevo estado de la cita"), # <-- Lee de la URL
+    nuevo_estado: str = Query(..., description="Nuevo estado de la cita"),
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
@@ -490,6 +488,12 @@ def cambiar_estado_cita(
             raise HTTPException(status_code=403, detail="No puedes modificar esta cita")
 
     cita.estado = nuevo_estado
+    
+    # Agregar nota automática si se completa
+    if nuevo_estado == "completada" or nuevo_estado == "atendida":
+        nota_anterior = cita.notas or ""
+        cita.notas = f"{nota_anterior}\n[Cita terminada el {date.today()}]".strip()
+        
     db.commit()
     db.refresh(cita)
     
@@ -500,7 +504,7 @@ def cambiar_estado_cita(
 @router.put("/{cita_id}/reasignar")
 def reasignar_cita(
     cita_id: int,
-    nuevo_doctor_id: int = Query(..., description="ID del nuevo doctor"), # <-- Lee de la URL
+    nuevo_doctor_id: int = Query(..., description="ID del nuevo doctor"),
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
@@ -645,11 +649,8 @@ async def reprogramar_cita(
     return cita
 
 
-# ==============================================================================
-# RUTAS DELETE
-# ==============================================================================
 @router.patch("/{cita_id}/estado", response_model=CitaResponse)
-async def cambiar_estado_cita(
+async def cambiar_estado_cita_patch(
     cita_id: int,
     datos: CitaEstado,
     db: Session = Depends(get_db),
@@ -675,6 +676,10 @@ async def cambiar_estado_cita(
     db.commit()
     db.refresh(cita)
     return cita
+
+# ==============================================================================
+# RUTAS DELETE
+# ==============================================================================
 
 @router.delete("/{cita_id}", status_code=status.HTTP_200_OK)
 async def eliminar_cita(
