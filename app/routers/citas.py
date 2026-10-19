@@ -1,7 +1,12 @@
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
+from fastapi import Query # Asegúrate de tener esto importado arriba
+from typing import Optional
+
+from app.models.alergia import Alergia 
+from app.models.alergia_paciente import AlergiaPaciente
 from app.database.connection import get_db
 from app.models.cita import Cita
 from app.models.paciente import Paciente
@@ -26,6 +31,13 @@ from app.services.email_service import (
     notificar_correo_cita_reprogramada
 )
 
+# --- ESQUEMAS PARA LAS NUEVAS RUTAS ---
+class EstadoCitaSchema(BaseModel):
+    nuevo_estado: str
+
+class ReasignarCitaSchema(BaseModel):
+    nuevo_doctor_id: int
+
 router = APIRouter(
     prefix="/api/citas",
     tags=["Citas"]
@@ -37,6 +49,10 @@ def verificar_permiso_recepcion(usuario_actual: Usuario):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el administrador o recepcionista pueden gestionar citas"
         )
+
+# ==============================================================================
+# RUTAS GET (Las específicas primero, la dinámica al final)
+# ==============================================================================
 
 @router.get("/mis-consultas")
 def obtener_mis_consultas(
@@ -70,6 +86,57 @@ def obtener_mis_consultas(
 
     return citas
 
+
+@router.get("/transferidas")
+def obtener_citas_transferidas(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    if usuario_actual.rol_id_FK != 2:
+        raise HTTPException(status_code=403, detail="Solo los doctores pueden ver esto")
+
+    doctor_actual = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+    if not doctor_actual:
+        raise HTTPException(status_code=404, detail="Perfil de doctor no encontrado")
+
+    nombre_doctor = doctor_actual.usuario.nombre if doctor_actual.usuario else ""
+    
+    # Buscamos citas que en sus notas tengan "transferida por Dr. [Nombre del doctor logueado]"
+    citas = (
+        db.query(Cita)
+        .filter(Cita.notas.contains(f"transferida por Dr. {nombre_doctor}"))
+        .order_by(Cita.fecha.desc())
+        .all()
+    )
+
+    resultado = []
+    for cita in citas:
+        nuevo_doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
+        nuevo_nombre = nuevo_doctor.usuario.nombre if nuevo_doctor and nuevo_doctor.usuario else "Desconocido"
+        
+        especialidad = "General"
+        if nuevo_doctor and nuevo_doctor.especialidad:
+            especialidad = nuevo_doctor.especialidad.nombre
+
+        paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
+        paciente_nombre = f"{paciente.nombre} {paciente.apellido}" if paciente else "Desconocido"
+
+        resultado.append({
+            "id_PK": cita.id_PK,
+            "fecha": str(cita.fecha) if cita.fecha else None,
+            "hora_inicio": str(cita.hora_inicio) if cita.hora_inicio else None,
+            "hora_fin": str(cita.hora_fin) if cita.hora_fin else None,
+            "estado": cita.estado,
+            "motivo": cita.motivo,
+            "notas": cita.notas,
+            "paciente_nombre": paciente_nombre,
+            "doctor_actual_nombre": nuevo_nombre,
+            "doctor_actual_especialidad": especialidad
+        })
+
+    return resultado
+
+
 @router.get("/")
 def obtener_citas(
     db: Session = Depends(get_db),
@@ -84,6 +151,72 @@ def obtener_citas(
     )
 
     return citas
+
+
+@router.get("/{cita_id}")
+def obtener_detalle_cita(
+    cita_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    if usuario_actual.rol_id_FK != 2:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo los doctores pueden ver el detalle de sus consultas"
+        )
+
+    cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
+    if not cita:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="La cita no existe"
+        )
+
+    doctor = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+    if not doctor or cita.doctor_id_FK != doctor.id_PK:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para ver esta cita"
+        )
+
+    paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
+    
+    alergias_db = []
+    if paciente:
+        alergias_db = (
+            db.query(AlergiaPaciente)
+            .options(joinedload(AlergiaPaciente.alergia))
+            .filter(AlergiaPaciente.paciente_id_FK == paciente.id_PK)
+            .all()
+        )
+
+    return {
+        "id_PK": cita.id_PK,
+        "fecha": str(cita.fecha) if cita.fecha else None,
+        "hora_inicio": str(cita.hora_inicio) if cita.hora_inicio else None,
+        "hora_fin": str(cita.hora_fin) if cita.hora_fin else None,
+        "estado": cita.estado,
+        "motivo": cita.motivo,
+        "notas": cita.notas,
+        "paciente": {
+            "id_PK": paciente.id_PK,
+            "nombre": paciente.nombre,
+            "apellido": paciente.apellido,
+            "fecha_nacimiento": str(paciente.fecha_nacimiento) if paciente.fecha_nacimiento else None,
+            "telefono": paciente.telefono,
+            "alergias": [
+                {
+                    "nombre": ap.alergia.nombre if ap.alergia else "Alergia desconocida",
+                    "severidad": ap.severidad or (ap.alergia.severidad if ap.alergia else "No especificada")
+                } for ap in alergias_db
+            ]
+        } if paciente else None
+    }
+
+
+# ==============================================================================
+# RUTAS POST
+# ==============================================================================
 
 @router.post(
     "/",
@@ -196,6 +329,93 @@ async def crear_cita(
 
     return nueva_cita
 
+
+@router.post("/disparar-recordatorios", status_code=status.HTTP_200_OK)
+async def disparar_recordatorios_manual(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    from app.services.reminder_service import verificar_y_emitir_recordatorios
+    await verificar_y_emitir_recordatorios(db)
+    return {
+        "status": "success",
+        "mensaje": "Verificación de recordatorios de citas ejecutada correctamente."
+    }
+
+
+# ==============================================================================
+# RUTAS PUT
+# ==============================================================================
+
+
+@router.put("/{cita_id}/estado")
+def cambiar_estado_cita(
+    cita_id: int,
+    nuevo_estado: str = Query(..., description="Nuevo estado de la cita"), # <-- Lee de la URL
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    print(f"--> BACKEND: Recibida petición para terminar cita {cita_id} con estado {nuevo_estado}")
+    
+    if usuario_actual.rol_id_FK not in [1, 2, 4]:
+        raise HTTPException(status_code=403, detail="No tienes permiso")
+
+    cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
+    if not cita:
+        raise HTTPException(status_code=404, detail="Cita no encontrada")
+
+    if usuario_actual.rol_id_FK == 2:
+        doctor = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+        if not doctor or cita.doctor_id_FK != doctor.id_PK:
+            raise HTTPException(status_code=403, detail="No puedes modificar esta cita")
+
+    cita.estado = nuevo_estado
+    db.commit()
+    db.refresh(cita)
+    
+    print(f"--> BACKEND: Cita {cita_id} actualizada exitosamente a {nuevo_estado}")
+    return {"mensaje": f"Cita actualizada a {nuevo_estado}", "cita": cita}
+
+
+@router.put("/{cita_id}/reasignar")
+def reasignar_cita(
+    cita_id: int,
+    nuevo_doctor_id: int = Query(..., description="ID del nuevo doctor"), # <-- Lee de la URL
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    print(f"--> BACKEND: Recibida petición para reasignar cita {cita_id} al doctor {nuevo_doctor_id}")
+    
+    if usuario_actual.rol_id_FK != 2:
+        raise HTTPException(status_code=403, detail="Solo los doctores pueden reasignar citas")
+
+    cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
+    if not cita:
+        raise HTTPException(status_code=404, detail="Cita no encontrada")
+
+    doctor_actual = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+    if not doctor_actual or cita.doctor_id_FK != doctor_actual.id_PK:
+        raise HTTPException(status_code=403, detail="Solo puedes reasignar tus propias citas")
+
+    nuevo_doctor = db.query(Doctor).filter(Doctor.id_PK == nuevo_doctor_id, Doctor.estado == "activo").first()
+    if not nuevo_doctor:
+        raise HTTPException(status_code=404, detail="El doctor seleccionado no existe o está inactivo")
+
+    nombre_anterior = doctor_actual.usuario.nombre if doctor_actual.usuario else "Desconocido"
+    nombre_nuevo = nuevo_doctor.usuario.nombre if nuevo_doctor.usuario else "Desconocido"
+    
+    nota_anterior = cita.notas or ""
+    nueva_nota = f"{nota_anterior}\n[Cita transferida por Dr. {nombre_anterior} al Dr. {nombre_nuevo}]".strip()
+    cita.notas = nueva_nota
+    
+    cita.doctor_id_FK = nuevo_doctor_id
+    db.commit()
+    db.refresh(cita)
+    
+    print(f"--> BACKEND: Cita {cita_id} reasignada exitosamente")
+    return {"mensaje": "Cita reasignada correctamente", "cita": cita}
+
+
 @router.put("/{cita_id}", response_model=CitaResponse)
 @router.put("/{cita_id}/reprogramar", response_model=CitaResponse)
 async def reprogramar_cita(
@@ -289,6 +509,11 @@ async def reprogramar_cita(
 
     return cita
 
+
+# ==============================================================================
+# RUTAS DELETE
+# ==============================================================================
+
 @router.delete("/{cita_id}", status_code=status.HTTP_200_OK)
 async def eliminar_cita(
     cita_id: int,
@@ -356,15 +581,3 @@ async def eliminar_cita(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"No se pudo eliminar la cita: {str(e)}"
         )
-
-@router.post("/disparar-recordatorios", status_code=status.HTTP_200_OK)
-async def disparar_recordatorios_manual(
-    db: Session = Depends(get_db),
-    usuario_actual: Usuario = Depends(get_current_user)
-):
-    from app.services.reminder_service import verificar_y_emitir_recordatorios
-    await verificar_y_emitir_recordatorios(db)
-    return {
-        "status": "success",
-        "mensaje": "Verificación de recordatorios de citas ejecutada correctamente."
-    }

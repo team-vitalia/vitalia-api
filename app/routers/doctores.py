@@ -498,3 +498,38 @@ def obtener_mis_pacientes(
         }
         for p in pacientes
     ]
+
+@router.get("/lista-para-transferir")
+def listar_doctores_para_transferir(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    # Cualquier doctor puede ver la lista para transferir
+    if usuario_actual.rol_id_FK != 2:
+        raise HTTPException(status_code=403, detail="Solo los doctores pueden ver esta lista")
+
+    # Buscar el doctor actual para excluirlo de la lista
+    doctor_actual = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+    
+    doctores = (
+        db.query(Doctor)
+        .options(joinedload(Doctor.usuario), joinedload(Doctor.especialidad))
+        .filter(Doctor.estado == "activo")
+        .all()
+    )
+
+    # Filtrar para no mostrar al mismo doctor
+    resultado = []
+    for doc in doctores:
+        if doctor_actual and doc.id_PK == doctor_actual.id_PK:
+            continue
+            
+        resultado.append({
+            "id_PK": doc.id_PK,
+            "nombre": doc.usuario.nombre if doc.usuario else "Sin nombre",
+            "especialidades": [
+                {"nombre": doc.especialidad.nombre}
+            ] if doc.especialidad else []
+        })
+    
+    return resultado
