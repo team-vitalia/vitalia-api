@@ -30,3 +30,4 @@ from app.models.interaccion_medicamento import InteraccionMedicamento
 from app.models.sala import Sala
 from app.models.equipamiento_sala import EquipamientoSala
 from app.models.notificacion import Notificacion
+from app.models.doctor_sala import DoctorSala

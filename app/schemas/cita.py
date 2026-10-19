@@ -12,6 +12,14 @@ class CitaCrear(BaseModel):
     estado: str = "programada"
     motivo: str | None = None
     notas: str | None = None
+    sala_id_FK: int | None = None
+    requiere_equipo: bool = False
+    equipo_id_FK: int | None = None
+    accion_equipo: str | None = None
+
+
+class CitaEstado(BaseModel):
+    estado: str
 
 
 class CitaReprogramar(BaseModel):
@@ -20,6 +28,10 @@ class CitaReprogramar(BaseModel):
     hora_fin: time
     motivo: str | None = None
     notas: str | None = None
+    sala_id_FK: int | None = None
+    requiere_equipo: bool | None = None
+    equipo_id_FK: int | None = None
+    accion_equipo: str | None = None
 
 
 class CitaActualizar(BaseModel):
@@ -43,6 +55,13 @@ class CitaResponse(BaseModel):
     notas: str | None
     creado_por: int | None
     google_event_id: str | None = None
+    sala_id_FK: int | None = None
+    sala_nombre: str | None = None
+    requiere_equipo: bool = False
+    equipo_id_FK: int | None = None
+    equipo_nombre: str | None = None
+    accion_equipo: str | None = None
+    no_realizada: bool = False
 
     class Config:
         from_attributes = True

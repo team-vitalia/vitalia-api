@@ -81,7 +81,7 @@ def listar_contratos(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    if usuario_actual.rol_id_FK == 1:
+    if usuario_actual.rol_id_FK in [1, 5]:
         return (
             db.query(ContratoDoctor)
             .order_by(ContratoDoctor.id_PK.desc())
@@ -183,7 +183,7 @@ def consultar_contrato(
 ):
     contrato = obtener_contrato_o_error(db, contrato_id)
 
-    if usuario_actual.rol_id_FK == 1:
+    if usuario_actual.rol_id_FK in [1, 5]:
         return contrato
 
     if usuario_actual.rol_id_FK == 2:

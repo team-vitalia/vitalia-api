@@ -23,10 +23,10 @@ router = APIRouter(
 
 
 def exigir_administrador(usuario: Usuario):
-    if usuario.rol_id_FK != 1:
+    if usuario.rol_id_FK not in [1, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador puede gestionar especialidades",
+            detail="Solo el administrador o coordinador pueden gestionar especialidades",
         )
 
 
@@ -64,7 +64,7 @@ def obtener_especialidades(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    if usuario_actual.rol_id_FK not in [1, 2, 4]:
+    if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=(
