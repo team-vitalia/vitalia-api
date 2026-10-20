@@ -26,3 +26,10 @@ class PacienteResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# 👇 ESTA ES LA CLASE QUE FALTABA PARA EL CU-30 👇
+class AlergiaCrear(BaseModel):
+    nombre: str
+    severidad: str | None = "moderada"
+    notas: str | None = None

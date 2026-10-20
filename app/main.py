@@ -7,6 +7,9 @@ from app.database.connection import get_db
 from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
 
+from app.routers.medicamentos import router as medicamentos_router
+from app.routers.recetas import router as recetas_router
+
 from app.routers.auth import router as auth_router
 from app.routers.roles import router as roles_router
 from app.routers.usuarios import router as usuarios_router
@@ -73,6 +76,9 @@ app.include_router(equipamiento_router)
 app.include_router(auditoria_router)
 app.include_router(reportes_router)
 app.include_router(doctor_salas_router)
+
+app.include_router(medicamentos_router)
+app.include_router(recetas_router)
 
 
 @app.on_event("startup")

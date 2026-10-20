@@ -4,7 +4,7 @@ from fastapi import Query
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date
-
+from sqlalchemy.orm import Session, joinedload
 from app.models.alergia import Alergia 
 from app.models.alergia_paciente import AlergiaPaciente
 from app.database.connection import get_db

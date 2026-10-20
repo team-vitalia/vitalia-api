@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session
 from app.database.connection import get_db
 from app.models.paciente import Paciente
 from app.models.usuario import Usuario
-from app.schemas.paciente import PacienteCrear, PacienteResponse
+from app.models.alergia import Alergia # 👈 NUEVO IMPORT
+from app.models.alergia_paciente import AlergiaPaciente # 👈 NUEVO IMPORT
+from app.schemas.paciente import PacienteCrear, PacienteResponse, AlergiaCrear # 👈 AGREGAMOS AlergiaCrear
 from app.core.dependencies import get_current_user
 
 
@@ -68,3 +70,45 @@ def crear_paciente(
     db.refresh(paciente)
 
     return paciente
+
+
+# 👇 NUEVO ENDPOINT PARA EL CU-30 👇
+@router.post("/{paciente_id}/alergias")
+def agregar_alergia(
+    paciente_id: int,
+    datos: AlergiaCrear,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    # Permitimos al médico (2) modificar el expediente
+    if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
+        raise HTTPException(status_code=403, detail="No tienes permiso para modificar expedientes")
+
+    paciente = db.query(Paciente).filter(Paciente.id_PK == paciente_id).first()
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+    # Buscamos si la alergia ya existe en el catálogo general (tabla alergias)
+    alergia = db.query(Alergia).filter(Alergia.nombre.ilike(datos.nombre)).first()
+    
+    # Si no existe, la creamos en el catálogo maestro
+    if not alergia:
+        alergia = Alergia(
+            nombre=datos.nombre, 
+            severidad=datos.severidad
+        )
+        db.add(alergia)
+        db.flush() # Para obtener el ID de la nueva alergia
+
+    # Vinculamos la alergia al paciente en la tabla intermedia
+    nueva_alergia_paciente = AlergiaPaciente(
+        paciente_id_FK=paciente_id,
+        alergia_id_FK=alergia.id_PK,
+        severidad=datos.severidad,
+        notas=datos.notas
+    )
+    
+    db.add(nueva_alergia_paciente)
+    db.commit()
+    
+    return {"mensaje": "Alergia agregada correctamente al expediente"}
