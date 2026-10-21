@@ -1,5 +1,5 @@
 """
-PRUEBA 1 - Validación de datos en creación, edición y eliminación.
+PRUEBA 20 - Validación de datos en creación, edición y eliminación.
 
 Verifica que la API acepte datos correctos y rechace los incorrectos de forma
 clara (códigos 4xx con mensaje), para que la interfaz muestre lo mismo que se

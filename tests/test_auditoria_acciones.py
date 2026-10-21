@@ -1,5 +1,5 @@
 """
-PRUEBA 3 - Registro (auditoría) de las acciones realizadas por cada usuario.
+PRUEBA 22 - Registro (auditoría) de las acciones realizadas por cada usuario.
 
 Verifica que cada alta/edición/baja registre quién, qué, cuándo, desde dónde y
 con qué valores; y que solo administración y coordinación puedan consultarlos.

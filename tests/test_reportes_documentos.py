@@ -1,5 +1,5 @@
 """
-PRUEBA 2 - Generación correcta de reportes (vista y documento PDF/Excel).
+PRUEBA 21 - Generación correcta de reportes (vista y documento PDF/Excel).
 
 Comprueba que los datos aparezcan en las columnas indicadas, que los totales
 sean correctos y que los documentos descargables sean archivos válidos.

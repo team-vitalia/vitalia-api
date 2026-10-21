@@ -1,5 +1,5 @@
 """
-PRUEBA 4 - Acciones del rol COORDINADOR y datos estadísticos.
+PRUEBA 23 - Acciones del rol COORDINADOR y datos estadísticos.
 
 Comprueba qué puede y qué NO puede hacer el coordinador en usuarios, salas,
 equipos, asignación de salas a doctores, reportes y auditoría.
