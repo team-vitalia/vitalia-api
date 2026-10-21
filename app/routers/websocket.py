@@ -9,9 +9,11 @@ Ofrece:
 import datetime
 import logging
 from typing import Optional, Dict, Any
+from pydantic import BaseModel
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 
 from app.services.connection_manager import manager
+from app.services.email_service import enviar_correo
 
 logger = logging.getLogger("vitalia.websocket_router")
 
@@ -156,3 +158,23 @@ async def broadcast_test_notification(payload: Optional[Dict[str, Any]] = None):
         "clientes_conectados": len(manager.active_connections),
         "mensaje": mensaje
     }
+
+
+class EmailPruebaRequest(BaseModel):
+    destinatario: str
+    asunto: str
+    mensaje: str
+
+
+@router.post("/email-prueba")
+async def email_prueba(datos: EmailPruebaRequest):
+    exito = await enviar_correo(
+        destinatario=datos.destinatario,
+        asunto=datos.asunto,
+        cuerpo_html=f"<p>{datos.mensaje}</p>",
+        cuerpo_texto=datos.mensaje
+    )
+    if not exito:
+        raise HTTPException(status_code=500, detail="Error al enviar el correo")
+    return {"ok": True, "destinatario": datos.destinatario}
+

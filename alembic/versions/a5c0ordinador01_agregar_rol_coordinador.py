@@ -22,7 +22,7 @@ def upgrade() -> None:
     """Inserta el rol Coordinador (id 5) si todavía no existe."""
     conn = op.get_bind()
     existe = conn.execute(
-        sa.text("SELECT COUNT(*) FROM roles WHERE nombre = 'Coordinador'")
+        sa.text("SELECT COUNT(*) FROM roles WHERE id_PK = 5 OR nombre = 'Coordinador'")
     ).scalar()
     if not existe:
         ahora = datetime.now()

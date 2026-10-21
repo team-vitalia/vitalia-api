@@ -17,7 +17,7 @@ from app.routers.pacientes import router as pacientes_router
 from app.routers.citas import router as citas_router
 from app.routers.doctores import router as doctores_router
 from app.routers.especialidades import router as especialidades_router
-from app.routers.websocket import router as websocket_router
+from app.routers.websocket import router as websocket_router, email_prueba
 from app.routers.contratos import router as contratos_router
 from app.routers.calendar import router as calendar_router
 from app.routers.colas import router as colas_router
@@ -79,6 +79,7 @@ app.include_router(doctor_salas_router)
 
 app.include_router(medicamentos_router)
 app.include_router(recetas_router)
+app.add_api_route("/email-prueba", email_prueba, methods=["POST"])
 
 
 @app.on_event("startup")

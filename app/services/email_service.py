@@ -9,7 +9,12 @@ from dotenv import load_dotenv
 logger = logging.getLogger("vitalia.email_service")
 
 def obtener_configuracion_smtp():
-    load_dotenv(override=False)
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    env_path = os.path.join(base_dir, ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=False)
+    else:
+        load_dotenv(override=False)
     host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USER", os.getenv("SMTP_EMAIL", "")).strip()
