@@ -5,6 +5,14 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
+"""
+PRUEBA 5 - Acceso restringido a usuarios por rol.
+
+Ejecutar:  pytest tests/test_auth.py -v
+
+Autor: 2024-06-10 - Vitalia S.A. - Equipo de Desarrollo - Guadarrama Hernandez Jose Luis
+"""
+
 # Crea un cliente para realizar peticiones de prueba a nuestra API
 client = TestClient(app)
 
