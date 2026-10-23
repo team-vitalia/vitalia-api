@@ -11,6 +11,7 @@ from app.routers.medicamentos import router as medicamentos_router
 from app.routers.recetas import router as recetas_router
 
 from app.routers.auth import router as auth_router
+from app.routers.recuperacion import router as recuperacion_router
 from app.routers.roles import router as roles_router
 from app.routers.usuarios import router as usuarios_router
 from app.routers.pacientes import router as pacientes_router
@@ -55,6 +56,7 @@ app.add_middleware(
 
 # Registro de rutas principales
 app.include_router(auth_router)
+app.include_router(recuperacion_router)
 app.include_router(roles_router)
 app.include_router(usuarios_router)
 app.include_router(pacientes_router)

@@ -43,16 +43,54 @@ def obtener_usuarios(
         .all()
     )
 
+    # Perfil de doctor y sus especialidades en 3 consultas (sin N+1).
+    nombres_especialidad = {
+        e.id_PK: e.nombre for e in db.query(Especialidad).all()
+    }
+
+    asignadas: dict[int, list[dict]] = {}
+    for fila in db.query(DoctorEspecialidad).all():
+        asignadas.setdefault(fila.doctor_id_FK, []).append({
+            "id_PK": fila.especialidad_id_FK,
+            "nombre": nombres_especialidad.get(fila.especialidad_id_FK, "—")
+        })
+
+    perfil_doctor: dict[int, dict] = {}
+    for doc in db.query(Doctor).all():
+        lista = asignadas.get(doc.id_PK)
+
+        # Compatibilidad con doctores antiguos sin tabla intermedia.
+        if not lista and doc.especialidad_id_FK:
+            lista = [{
+                "id_PK": doc.especialidad_id_FK,
+                "nombre": nombres_especialidad.get(doc.especialidad_id_FK, "—")
+            }]
+
+        perfil_doctor[doc.usuario_id_FK] = {
+            "doctor_id": doc.id_PK,
+            "numero_licencia": doc.numero_licencia,
+            "costo_consulta": (
+                float(doc.costo_consulta)
+                if doc.costo_consulta is not None else None
+            ),
+            "especialidades": sorted(lista or [], key=lambda e: e["nombre"])
+        }
+
     return [
         {
             "id_PK": usuario.id_PK,
             "nombre": usuario.nombre,
             "correo_electronico": usuario.correo_electronico,
+            "telefono": usuario.telefono,
             "rol_id_FK": usuario.rol_id_FK,
             "rol": usuario.rol.nombre if usuario.rol else None,
             "estado": usuario.estado,
             "creado_en": usuario.creado_en,
-            "ultimo_acceso": usuario.ultimo_acceso
+            "ultimo_acceso": usuario.ultimo_acceso,
+            "doctor_id": perfil_doctor.get(usuario.id_PK, {}).get("doctor_id"),
+            "numero_licencia": perfil_doctor.get(usuario.id_PK, {}).get("numero_licencia"),
+            "costo_consulta": perfil_doctor.get(usuario.id_PK, {}).get("costo_consulta"),
+            "especialidades": perfil_doctor.get(usuario.id_PK, {}).get("especialidades", [])
         }
         for usuario in usuarios
     ]

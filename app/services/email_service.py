@@ -161,6 +161,26 @@ def generar_html_cita_agendada(paciente_nombre: str, doctor_nombre: str, fecha: 
         mensaje_adicional=f"Hola {paciente_nombre}, tu cita médica ha sido registrada con éxito en nuestro sistema de atención clínica. A continuación encontrarás los detalles de tu consulta:"
     )
 
+def html_enlace_recuperacion(nombre: str, enlace: str) -> str:
+    enlace_html = (enlace.replace("&", "&amp;").replace('"', "&quot;")
+                   .replace("<", "&lt;").replace(">", "&gt;"))
+    return construir_plantilla_base(
+        titulo="Restablece tu contraseña",
+        subtitulo_badge="Recuperación de contraseña",
+        color_badge_bg="rgb(226, 244, 240)",
+        color_badge_txt="rgb(36, 127, 118)",
+        filas_detalle=[
+            ("Usuario", nombre),
+            ("Acceso", f'<a href="{enlace_html}">Cambiar mi contraseña</a>'),
+            ("Vigencia", "10 minutos"),
+        ],
+        mensaje_adicional=(
+            "Recibimos una solicitud para cambiar tu contraseña. Usa el enlace para establecer una nueva. "
+            "Si no solicitaste este cambio, ignora este mensaje."
+        ),
+    )
+
+
 def generar_html_cita_reprogramada(paciente_nombre: str, doctor_nombre: str, nueva_fecha: str, nueva_hora_inicio: str, nueva_hora_fin: str, motivo: str) -> str:
     filas = [
         ("Paciente", paciente_nombre),
@@ -219,3 +239,4 @@ async def notificar_correo_recordatorio(destinatario: str, paciente_nombre: str,
     html = generar_html_recordatorio_cita(paciente_nombre, doctor_nombre, fecha, hora, intervalo_texto, motivo)
     texto = f"Recordatorio de cita médica para {paciente_nombre} con Dr./Dra. {doctor_nombre} el {fecha} a las {hora}. Falta {intervalo_texto}."
     await enviar_correo(destinatario, asunto, html, texto)
+
