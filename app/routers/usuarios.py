@@ -103,8 +103,7 @@ def obtener_usuarios(
 )
 def crear_usuario(
     datos: UsuarioCrear,
-    db: Session = Depends(get_db),
-    usuario_actual: Usuario = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
     # Solo el administrador o coordinador pueden crear usuarios
     if usuario_actual.rol_id_FK not in [1, 5]:
@@ -309,7 +308,6 @@ def crear_usuario(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error: {str(e)}"
         )
-
 
 @router.patch("/{usuario_id}")
 def actualizar_usuario(
