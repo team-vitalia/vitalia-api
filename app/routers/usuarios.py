@@ -1,544 +1,543 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
-
-from app.database.connection import get_db
-from app.models.usuario import Usuario
-from app.models.role import Role
-from sqlalchemy import func
-from app.models.doctor_especialidad import DoctorEspecialidad
-from app.schemas.usuario import (
-    UsuarioCrear,
-    UsuarioResponse,
-    UsuarioActualizar
-)
-from app.core.security import generar_hash_password
-from app.core.dependencies import get_current_user
-from app.models.paciente import Paciente
-from app.models.doctor import Doctor
-from app.models.especialidad import Especialidad
-
-
-router = APIRouter(
-    prefix="/api/usuarios",
-    tags=["Usuarios"]
-)
-
-
-@router.get("/")
-def obtener_usuarios(
-    db: Session = Depends(get_db),
-    usuario_actual: Usuario = Depends(get_current_user)
-):
-    
-    # Solo el administrador o coordinador pueden consultar los usuarios
-    if usuario_actual.rol_id_FK not in [1, 5]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador o coordinador pueden consultar los usuarios"
-        )
-
-    usuarios = (
-        db.query(Usuario)
-        .order_by(Usuario.id_PK)
-        .all()
-    )
-
-    # Perfil de doctor y sus especialidades en 3 consultas (sin N+1).
-    nombres_especialidad = {
-        e.id_PK: e.nombre for e in db.query(Especialidad).all()
-    }
-
-    asignadas: dict[int, list[dict]] = {}
-    for fila in db.query(DoctorEspecialidad).all():
-        asignadas.setdefault(fila.doctor_id_FK, []).append({
-            "id_PK": fila.especialidad_id_FK,
-            "nombre": nombres_especialidad.get(fila.especialidad_id_FK, "—")
-        })
-
-    perfil_doctor: dict[int, dict] = {}
-    for doc in db.query(Doctor).all():
-        lista = asignadas.get(doc.id_PK)
-
-        # Compatibilidad con doctores antiguos sin tabla intermedia.
-        if not lista and doc.especialidad_id_FK:
-            lista = [{
-                "id_PK": doc.especialidad_id_FK,
-                "nombre": nombres_especialidad.get(doc.especialidad_id_FK, "—")
-            }]
-
-        perfil_doctor[doc.usuario_id_FK] = {
-            "doctor_id": doc.id_PK,
-            "numero_licencia": doc.numero_licencia,
-            "costo_consulta": (
-                float(doc.costo_consulta)
-                if doc.costo_consulta is not None else None
-            ),
-            "especialidades": sorted(lista or [], key=lambda e: e["nombre"])
-        }
-
-    return [
-        {
-            "id_PK": usuario.id_PK,
-            "nombre": usuario.nombre,
-            "correo_electronico": usuario.correo_electronico,
-            "telefono": usuario.telefono,
-            "rol_id_FK": usuario.rol_id_FK,
-            "rol": usuario.rol.nombre if usuario.rol else None,
-            "estado": usuario.estado,
-            "creado_en": usuario.creado_en,
-            "ultimo_acceso": usuario.ultimo_acceso,
-            "doctor_id": perfil_doctor.get(usuario.id_PK, {}).get("doctor_id"),
-            "numero_licencia": perfil_doctor.get(usuario.id_PK, {}).get("numero_licencia"),
-            "costo_consulta": perfil_doctor.get(usuario.id_PK, {}).get("costo_consulta"),
-            "especialidades": perfil_doctor.get(usuario.id_PK, {}).get("especialidades", [])
-        }
-        for usuario in usuarios
-    ]
-
-
-@router.post(
-    "/",
-    response_model=UsuarioResponse,
-    status_code=status.HTTP_201_CREATED
-)
-def crear_usuario(
-    datos: UsuarioCrear,
-    db: Session = Depends(get_db)
-):
-    # Solo el administrador o coordinador pueden crear usuarios
-    if usuario_actual.rol_id_FK not in [1, 5]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador o coordinador pueden crear usuarios"
-        )
-
-    # El coordinador no puede crear administradores ni otros coordinadores
-    if usuario_actual.rol_id_FK == 5 and datos.rol_id_FK in [1, 5]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El coordinador no puede crear administradores ni coordinadores"
-        )
-
-    # Verificar correo
-    usuario_existente = (
-        db.query(Usuario)
-        .filter(
-            Usuario.correo_electronico == datos.correo_electronico
-        )
-        .first()
-    )
-
-    if usuario_existente:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un usuario con ese correo electrónico"
-        )
-
-    # Verificar rol
-    rol = (
-        db.query(Role)
-        .filter(
-            Role.id_PK == datos.rol_id_FK,
-            Role.esta_activo == True
-        )
-        .first()
-    )
-
-    if not rol:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El rol seleccionado no existe o está inactivo"
-        )
-
-    try:
-        # ==========================================
-        # 1. CREAR USUARIO
-        # ==========================================
-
-        nuevo_usuario = Usuario(
-            nombre=datos.nombre,
-            correo_electronico=datos.correo_electronico,
-            hash_contrasena=generar_hash_password(datos.password),
-            rol_id_FK=datos.rol_id_FK,
-            estado="activo",
-            telefono=datos.telefono,
-            intentos_fallidos=0
-        )
-
-        db.add(nuevo_usuario)
-
-        # Generamos el ID del usuario antes de continuar
-        db.flush()
-
-        # ==========================================
-        # 2. SI ES DOCTOR
-        # ==========================================
-
-        
-        if datos.rol_id_FK == 2:
-
-            # Combinar la especialidad antigua con la nueva lista.
-            especialidad_ids = list(datos.especialidad_ids)
-
-            if datos.especialidad_id_FK is not None:
-                if datos.especialidad_id_FK not in especialidad_ids:
-                    especialidad_ids.append(datos.especialidad_id_FK)
-
-            # Evitar especialidades duplicadas.
-            if len(especialidad_ids) != len(set(especialidad_ids)):
-                raise HTTPException(
-                    status_code=422,
-                    detail="No puedes asignar una especialidad más de una vez"
-                )
-
-            # Validar que todas existan y estén activas.
-            if especialidad_ids:
-                especialidades = (
-                    db.query(Especialidad)
-                    .filter(
-                        Especialidad.id_PK.in_(especialidad_ids),
-                        Especialidad.esta_activo.is_(True)
-                    )
-                    .all()
-                )
-
-                if len(especialidades) != len(especialidad_ids):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Una o más especialidades no existen o están inactivas"
-                    )
-
-            # Validar licencia duplicada.
-            licencia = (
-                datos.numero_licencia.strip()
-                if datos.numero_licencia
-                else None
-            )
-
-            if licencia:
-                duplicado = (
-                    db.query(Doctor)
-                    .filter(
-                        func.lower(Doctor.numero_licencia) == licencia.lower()
-                    )
-                    .first()
-                )
-
-                if duplicado:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="El número de licencia ya está registrado"
-                    )
-
-            # Crear perfil del médico.
-            nuevo_doctor = Doctor(
-                usuario_id_FK=nuevo_usuario.id_PK,
-                especialidad_id_FK=datos.especialidad_id_FK,
-                numero_licencia=licencia,
-                estado="activo",
-                costo_consulta=datos.costo_consulta
-            )
-
-            db.add(nuevo_doctor)
-            db.flush()
-
-            # Guardar cada especialidad en doctor_especialidades.
-            for especialidad_id in especialidad_ids:
-                db.add(
-                    DoctorEspecialidad(
-                        doctor_id_FK=nuevo_doctor.id_PK,
-                        especialidad_id_FK=especialidad_id
-                    )
-                )
-
-        # ==========================================
-        # 3. SI ES PACIENTE
-        # ==========================================
-
-        elif datos.rol_id_FK == 3:
-
-            if not datos.apellido:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="El apellido es obligatorio para pacientes"
-                )
-
-            nuevo_paciente = Paciente(
-                # Relación entre paciente y usuario
-                usuario_id_FK=nuevo_usuario.id_PK,
-
-                nombre=datos.nombre,
-                apellido=datos.apellido,
-                fecha_nacimiento=datos.fecha_nacimiento,
-                genero=datos.genero,
-                telefono=datos.telefono,
-                direccion=datos.direccion,
-                correo_electronico=datos.correo_electronico,
-                estado="activo"
-            )
-
-            db.add(nuevo_paciente)
-
-        # ==========================================
-        # 4. ADMIN / RECEPCIÓN
-        # ==========================================
-        # No necesitan registro adicional.
-
-        db.commit()
-        db.refresh(nuevo_usuario)
-
-        return nuevo_usuario
-
-    except HTTPException:
-        db.rollback()
-        raise
-
-    except Exception as e:
-        db.rollback()
-        import traceback
-        print("=" * 60)
-        print("🚨 ERROR AL CREAR USUARIO:")
-        print("=" * 60)
-        traceback.print_exc()
-        print(f"Tipo: {type(e).__name__}")
-        print(f"Mensaje: {str(e)}")
-        print("=" * 60)
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error: {str(e)}"
-        )
-
-@router.patch("/{usuario_id}")
-def actualizar_usuario(
-    usuario_id: int,
-    datos: UsuarioActualizar,
-    db: Session = Depends(get_db),
-    usuario_actual: Usuario = Depends(get_current_user)
-):
-    """
-    Permite al administrador editar datos básicos,
-    cambiar el rol cuando sea seguro y activar o desactivar cuentas.
-    """
-
-    if usuario_actual.rol_id_FK not in [1, 5]:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador o coordinador pueden actualizar usuarios"
-        )
-
-    usuario = (
-        db.query(Usuario)
-        .filter(Usuario.id_PK == usuario_id)
-        .first()
-    )
-
-    if not usuario:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El usuario no existe"
-        )
-
-    # El coordinador no puede modificar cuentas de administradores ni de
-    # otros coordinadores (sí puede editar su propia cuenta).
-    if (
-        usuario_actual.rol_id_FK == 5
-        and usuario.rol_id_FK in [1, 5]
-        and usuario.id_PK != usuario_actual.id_PK
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="El coordinador no puede modificar administradores ni coordinadores"
-        )
-
-    cambios = datos.model_dump(exclude_unset=True)
-
-    if not cambios:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No se recibieron cambios"
-        )
-
-    # Validar nombre.
-    if "nombre" in cambios:
-        nombre = (cambios["nombre"] or "").strip()
-
-        if not nombre:
-            raise HTTPException(
-                status_code=422,
-                detail="El nombre es obligatorio"
-            )
-
-        cambios["nombre"] = nombre
-
-    # Validar que el correo no pertenezca a otra cuenta.
-    if (
-        "correo_electronico" in cambios
-        and cambios["correo_electronico"] is not None
-    ):
-        correo = str(
-            cambios["correo_electronico"]
-        ).strip().lower()
-
-        duplicado = (
-            db.query(Usuario)
-            .filter(
-                Usuario.correo_electronico == correo,
-                Usuario.id_PK != usuario_id
-            )
-            .first()
-        )
-
-        if duplicado:
-            raise HTTPException(
-                status_code=409,
-                detail="Ya existe un usuario con ese correo electrónico"
-            )
-
-        cambios["correo_electronico"] = correo
-
-    # Validar el estado.
-    if "estado" in cambios:
-        estado = (cambios["estado"] or "").strip().lower()
-
-        if estado not in {"activo", "inactivo"}:
-            raise HTTPException(
-                status_code=422,
-                detail="El estado debe ser activo o inactivo"
-            )
-
-        if (
-            usuario.id_PK == usuario_actual.id_PK
-            and estado == "inactivo"
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="No puedes desactivar tu propia cuenta"
-            )
-
-        # No dejar el sistema sin administradores activos.
-        if usuario.rol_id_FK == 1 and estado == "inactivo":
-            administradores_activos = (
-                db.query(Usuario)
-                .filter(
-                    Usuario.rol_id_FK == 1,
-                    Usuario.estado == "activo"
-                )
-                .count()
-            )
-
-            if administradores_activos <= 1:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "No puedes desactivar al último "
-                        "administrador activo"
-                    )
-                )
-
-        cambios["estado"] = estado
-
-    # Validar cambios de rol.
-    if "rol_id_FK" in cambios:
-        nuevo_rol_id = cambios["rol_id_FK"]
-
-        if nuevo_rol_id is None:
-            raise HTTPException(
-                status_code=422,
-                detail="Debes seleccionar un rol"
-            )
-
-        rol = (
-            db.query(Role)
-            .filter(
-                Role.id_PK == nuevo_rol_id,
-                Role.esta_activo.is_(True)
-            )
-            .first()
-        )
-
-        if not rol:
-            raise HTTPException(
-                status_code=400,
-                detail="El rol seleccionado no existe o está inactivo"
-            )
-
-        if (
-            usuario_actual.rol_id_FK == 5
-            and nuevo_rol_id in [1, 5]
-            and nuevo_rol_id != usuario.rol_id_FK
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="El coordinador no puede asignar el rol de administrador ni de coordinador"
-            )
-
-        if nuevo_rol_id != usuario.rol_id_FK:
-            tiene_perfil_doctor = (
-                db.query(Doctor)
-                .filter(Doctor.usuario_id_FK == usuario_id)
-                .first()
-                is not None
-            )
-
-            tiene_perfil_paciente = (
-                db.query(Paciente)
-                .filter(Paciente.usuario_id_FK == usuario_id)
-                .first()
-                is not None
-            )
-
-            if tiene_perfil_doctor or tiene_perfil_paciente:
-                raise HTTPException(
-                    status_code=409,
-                    detail=(
-                        "La cuenta tiene un perfil clínico asociado. "
-                        "No se puede cambiar su rol desde esta operación."
-                    )
-                )
-
-            if usuario.rol_id_FK == 1 and nuevo_rol_id != 1:
-                administradores_activos = (
-                    db.query(Usuario)
-                    .filter(
-                        Usuario.rol_id_FK == 1,
-                        Usuario.estado == "activo"
-                    )
-                    .count()
-                )
-
-                if administradores_activos <= 1:
-                    raise HTTPException(
-                        status_code=409,
-                        detail=(
-                            "No puedes cambiar el rol del último "
-                            "administrador activo"
-                        )
-                    )
-
-    # Aplicar los cambios.
-    try:
-        for campo, valor in cambios.items():
-            setattr(usuario, campo, valor)
-
-        db.commit()
-        db.refresh(usuario)
-
-    except Exception:
-        db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail="No fue posible actualizar el usuario"
-        )
-
-    return {
-        "id_PK": usuario.id_PK,
-        "nombre": usuario.nombre,
-        "correo_electronico": usuario.correo_electronico,
-        "telefono": usuario.telefono,
-        "rol_id_FK": usuario.rol_id_FK,
-        "rol": usuario.rol.nombre if usuario.rol else None,
-        "estado": usuario.estado,
-        "creado_en": usuario.creado_en,
-        "ultimo_acceso": usuario.ultimo_acceso
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.database.connection import get_db
+from app.models.usuario import Usuario
+from app.models.role import Role
+from sqlalchemy import func
+from app.models.doctor_especialidad import DoctorEspecialidad
+from app.schemas.usuario import (
+    UsuarioCrear,
+    UsuarioResponse,
+    UsuarioActualizar
+)
+from app.core.security import generar_hash_password
+from app.core.dependencies import get_current_user
+from app.models.paciente import Paciente
+from app.models.doctor import Doctor
+from app.models.especialidad import Especialidad
+
+
+router = APIRouter(
+    prefix="/api/usuarios",
+    tags=["Usuarios"]
+)
+
+
+@router.get("/")
+def obtener_usuarios(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    
+    # Solo el administrador o coordinador pueden consultar los usuarios
+    if usuario_actual.rol_id_FK not in [1, 5]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el administrador o coordinador pueden consultar los usuarios"
+        )
+
+    usuarios = (
+        db.query(Usuario)
+        .order_by(Usuario.id_PK)
+        .all()
+    )
+
+    # Perfil de doctor y sus especialidades en 3 consultas (sin N+1).
+    nombres_especialidad = {
+        e.id_PK: e.nombre for e in db.query(Especialidad).all()
+    }
+
+    asignadas: dict[int, list[dict]] = {}
+    for fila in db.query(DoctorEspecialidad).all():
+        asignadas.setdefault(fila.doctor_id_FK, []).append({
+            "id_PK": fila.especialidad_id_FK,
+            "nombre": nombres_especialidad.get(fila.especialidad_id_FK, "—")
+        })
+
+    perfil_doctor: dict[int, dict] = {}
+    for doc in db.query(Doctor).all():
+        lista = asignadas.get(doc.id_PK)
+
+        # Compatibilidad con doctores antiguos sin tabla intermedia.
+        if not lista and doc.especialidad_id_FK:
+            lista = [{
+                "id_PK": doc.especialidad_id_FK,
+                "nombre": nombres_especialidad.get(doc.especialidad_id_FK, "—")
+            }]
+
+        perfil_doctor[doc.usuario_id_FK] = {
+            "doctor_id": doc.id_PK,
+            "numero_licencia": doc.numero_licencia,
+            "costo_consulta": (
+                float(doc.costo_consulta)
+                if doc.costo_consulta is not None else None
+            ),
+            "especialidades": sorted(lista or [], key=lambda e: e["nombre"])
+        }
+
+    return [
+        {
+            "id_PK": usuario.id_PK,
+            "nombre": usuario.nombre,
+            "correo_electronico": usuario.correo_electronico,
+            "telefono": usuario.telefono,
+            "rol_id_FK": usuario.rol_id_FK,
+            "rol": usuario.rol.nombre if usuario.rol else None,
+            "estado": usuario.estado,
+            "creado_en": usuario.creado_en,
+            "ultimo_acceso": usuario.ultimo_acceso,
+            "doctor_id": perfil_doctor.get(usuario.id_PK, {}).get("doctor_id"),
+            "numero_licencia": perfil_doctor.get(usuario.id_PK, {}).get("numero_licencia"),
+            "costo_consulta": perfil_doctor.get(usuario.id_PK, {}).get("costo_consulta"),
+            "especialidades": perfil_doctor.get(usuario.id_PK, {}).get("especialidades", [])
+        }
+        for usuario in usuarios
+    ]
+
+
+@router.post(
+    "/",
+    response_model=UsuarioResponse,
+    status_code=status.HTTP_201_CREATED
+)
+def crear_usuario(
+    datos: UsuarioCrear,
+    db: Session = Depends(get_db)
+):
+    # NOTA: Validaciones de permiso comentadas temporalmente para permitir registrar el primer usuario (sin token).
+    # if usuario_actual.rol_id_FK not in [1, 5]:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="Solo el administrador o coordinador pueden crear usuarios"
+    #     )
+
+    # if usuario_actual.rol_id_FK == 5 and datos.rol_id_FK in [1, 5]:
+    #     raise HTTPException(
+    #         status_code=status.HTTP_403_FORBIDDEN,
+    #         detail="El coordinador no puede crear administradores ni coordinadores"
+    #     )
+
+    # Verificar correo
+    usuario_existente = (
+        db.query(Usuario)
+        .filter(
+            Usuario.correo_electronico == datos.correo_electronico
+        )
+        .first()
+    )
+
+    if usuario_existente:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Ya existe un usuario con ese correo electrónico"
+        )
+
+    # Verificar rol
+    rol = (
+        db.query(Role)
+        .filter(
+            Role.id_PK == datos.rol_id_FK,
+            Role.esta_activo == True
+        )
+        .first()
+    )
+
+    if not rol:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El rol seleccionado no existe o está inactivo"
+        )
+
+    try:
+        # ==========================================
+        # 1. CREAR USUARIO
+        # ==========================================
+
+        nuevo_usuario = Usuario(
+            nombre=datos.nombre,
+            correo_electronico=datos.correo_electronico,
+            hash_contrasena=generar_hash_password(datos.password),
+            rol_id_FK=datos.rol_id_FK,
+            estado="activo",
+            telefono=datos.telefono,
+            intentos_fallidos=0
+        )
+
+        db.add(nuevo_usuario)
+
+        # Generamos el ID del usuario antes de continuar
+        db.flush()
+
+        # ==========================================
+        # 2. SI ES DOCTOR
+        # ==========================================
+
+        
+        if datos.rol_id_FK == 2:
+
+            # Combinar la especialidad antigua con la nueva lista.
+            especialidad_ids = list(datos.especialidad_ids)
+
+            if datos.especialidad_id_FK is not None:
+                if datos.especialidad_id_FK not in especialidad_ids:
+                    especialidad_ids.append(datos.especialidad_id_FK)
+
+            # Evitar especialidades duplicadas.
+            if len(especialidad_ids) != len(set(especialidad_ids)):
+                raise HTTPException(
+                    status_code=422,
+                    detail="No puedes asignar una especialidad más de una vez"
+                )
+
+            # Validar que todas existan y estén activas.
+            if especialidad_ids:
+                especialidades = (
+                    db.query(Especialidad)
+                    .filter(
+                        Especialidad.id_PK.in_(especialidad_ids),
+                        Especialidad.esta_activo.is_(True)
+                    )
+                    .all()
+                )
+
+                if len(especialidades) != len(especialidad_ids):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Una o más especialidades no existen o están inactivas"
+                    )
+
+            # Validar licencia duplicada.
+            licencia = (
+                datos.numero_licencia.strip()
+                if datos.numero_licencia
+                else None
+            )
+
+            if licencia:
+                duplicado = (
+                    db.query(Doctor)
+                    .filter(
+                        func.lower(Doctor.numero_licencia) == licencia.lower()
+                    )
+                    .first()
+                )
+
+                if duplicado:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="El número de licencia ya está registrado"
+                    )
+
+            # Crear perfil del médico.
+            nuevo_doctor = Doctor(
+                usuario_id_FK=nuevo_usuario.id_PK,
+                especialidad_id_FK=datos.especialidad_id_FK,
+                numero_licencia=licencia,
+                estado="activo",
+                costo_consulta=datos.costo_consulta
+            )
+
+            db.add(nuevo_doctor)
+            db.flush()
+
+            # Guardar cada especialidad en doctor_especialidades.
+            for especialidad_id in especialidad_ids:
+                db.add(
+                    DoctorEspecialidad(
+                        doctor_id_FK=nuevo_doctor.id_PK,
+                        especialidad_id_FK=especialidad_id
+                    )
+                )
+
+        # ==========================================
+        # 3. SI ES PACIENTE
+        # ==========================================
+
+        elif datos.rol_id_FK == 3:
+
+            if not datos.apellido:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="El apellido es obligatorio para pacientes"
+                )
+
+            nuevo_paciente = Paciente(
+                # Relación entre paciente y usuario
+                usuario_id_FK=nuevo_usuario.id_PK,
+
+                nombre=datos.nombre,
+                apellido=datos.apellido,
+                fecha_nacimiento=datos.fecha_nacimiento,
+                genero=datos.genero,
+                telefono=datos.telefono,
+                direccion=datos.direccion,
+                correo_electronico=datos.correo_electronico,
+                estado="activo"
+            )
+
+            db.add(nuevo_paciente)
+
+        # ==========================================
+        # 4. ADMIN / RECEPCIÓN
+        # ==========================================
+        # No necesitan registro adicional.
+
+        db.commit()
+        db.refresh(nuevo_usuario)
+
+        return nuevo_usuario
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as e:
+        db.rollback()
+        import traceback
+        print("=" * 60)
+        print("🚨 ERROR AL CREAR USUARIO:")
+        print("=" * 60)
+        traceback.print_exc()
+        print(f"Tipo: {type(e).__name__}")
+        print(f"Mensaje: {str(e)}")
+        print("=" * 60)
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error: {str(e)}"
+        )
+
+@router.patch("/{usuario_id}")
+def actualizar_usuario(
+    usuario_id: int,
+    datos: UsuarioActualizar,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """
+    Permite al administrador editar datos básicos,
+    cambiar el rol cuando sea seguro y activar o desactivar cuentas.
+    """
+
+    if usuario_actual.rol_id_FK not in [1, 5]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el administrador o coordinador pueden actualizar usuarios"
+        )
+
+    usuario = (
+        db.query(Usuario)
+        .filter(Usuario.id_PK == usuario_id)
+        .first()
+    )
+
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El usuario no existe"
+        )
+
+    # El coordinador no puede modificar cuentas de administradores ni de
+    # otros coordinadores (sí puede editar su propia cuenta).
+    if (
+        usuario_actual.rol_id_FK == 5
+        and usuario.rol_id_FK in [1, 5]
+        and usuario.id_PK != usuario_actual.id_PK
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El coordinador no puede modificar administradores ni coordinadores"
+        )
+
+    cambios = datos.model_dump(exclude_unset=True)
+
+    if not cambios:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No se recibieron cambios"
+        )
+
+    # Validar nombre.
+    if "nombre" in cambios:
+        nombre = (cambios["nombre"] or "").strip()
+
+        if not nombre:
+            raise HTTPException(
+                status_code=422,
+                detail="El nombre es obligatorio"
+            )
+
+        cambios["nombre"] = nombre
+
+    # Validar que el correo no pertenezca a otra cuenta.
+    if (
+        "correo_electronico" in cambios
+        and cambios["correo_electronico"] is not None
+    ):
+        correo = str(
+            cambios["correo_electronico"]
+        ).strip().lower()
+
+        duplicado = (
+            db.query(Usuario)
+            .filter(
+                Usuario.correo_electronico == correo,
+                Usuario.id_PK != usuario_id
+            )
+            .first()
+        )
+
+        if duplicado:
+            raise HTTPException(
+                status_code=409,
+                detail="Ya existe un usuario con ese correo electrónico"
+            )
+
+        cambios["correo_electronico"] = correo
+
+    # Validar el estado.
+    if "estado" in cambios:
+        estado = (cambios["estado"] or "").strip().lower()
+
+        if estado not in {"activo", "inactivo"}:
+            raise HTTPException(
+                status_code=422,
+                detail="El estado debe ser activo o inactivo"
+            )
+
+        if (
+            usuario.id_PK == usuario_actual.id_PK
+            and estado == "inactivo"
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="No puedes desactivar tu propia cuenta"
+            )
+
+        # No dejar el sistema sin administradores activos.
+        if usuario.rol_id_FK == 1 and estado == "inactivo":
+            administradores_activos = (
+                db.query(Usuario)
+                .filter(
+                    Usuario.rol_id_FK == 1,
+                    Usuario.estado == "activo"
+                )
+                .count()
+            )
+
+            if administradores_activos <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "No puedes desactivar al último "
+                        "administrador activo"
+                    )
+                )
+
+        cambios["estado"] = estado
+
+    # Validar cambios de rol.
+    if "rol_id_FK" in cambios:
+        nuevo_rol_id = cambios["rol_id_FK"]
+
+        if nuevo_rol_id is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Debes seleccionar un rol"
+            )
+
+        rol = (
+            db.query(Role)
+            .filter(
+                Role.id_PK == nuevo_rol_id,
+                Role.esta_activo.is_(True)
+            )
+            .first()
+        )
+
+        if not rol:
+            raise HTTPException(
+                status_code=400,
+                detail="El rol seleccionado no existe o está inactivo"
+            )
+
+        if (
+            usuario_actual.rol_id_FK == 5
+            and nuevo_rol_id in [1, 5]
+            and nuevo_rol_id != usuario.rol_id_FK
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El coordinador no puede asignar el rol de administrador ni de coordinador"
+            )
+
+        if nuevo_rol_id != usuario.rol_id_FK:
+            tiene_perfil_doctor = (
+                db.query(Doctor)
+                .filter(Doctor.usuario_id_FK == usuario_id)
+                .first()
+                is not None
+            )
+
+            tiene_perfil_paciente = (
+                db.query(Paciente)
+                .filter(Paciente.usuario_id_FK == usuario_id)
+                .first()
+                is not None
+            )
+
+            if tiene_perfil_doctor or tiene_perfil_paciente:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "La cuenta tiene un perfil clínico asociado. "
+                        "No se puede cambiar su rol desde esta operación."
+                    )
+                )
+
+            if usuario.rol_id_FK == 1 and nuevo_rol_id != 1:
+                administradores_activos = (
+                    db.query(Usuario)
+                    .filter(
+                        Usuario.rol_id_FK == 1,
+                        Usuario.estado == "activo"
+                    )
+                    .count()
+                )
+
+                if administradores_activos <= 1:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "No puedes cambiar el rol del último "
+                            "administrador activo"
+                        )
+                    )
+
+    # Aplicar los cambios.
+    try:
+        for campo, valor in cambios.items():
+            setattr(usuario, campo, valor)
+
+        db.commit()
+        db.refresh(usuario)
+
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="No fue posible actualizar el usuario"
+        )
+
+    return {
+        "id_PK": usuario.id_PK,
+        "nombre": usuario.nombre,
+        "correo_electronico": usuario.correo_electronico,
+        "telefono": usuario.telefono,
+        "rol_id_FK": usuario.rol_id_FK,
+        "rol": usuario.rol.nombre if usuario.rol else None,
+        "estado": usuario.estado,
+        "creado_en": usuario.creado_en,
+        "ultimo_acceso": usuario.ultimo_acceso
     }
