@@ -19,6 +19,10 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
         os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")
     )
+    FRONTEND_RESET_URL: str = os.getenv(
+        "FRONTEND_RESET_URL",
+        "http://192.168.100.14:8081/recuperar"
+    )
 
 
 settings = Settings()
