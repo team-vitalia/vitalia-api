@@ -23,10 +23,13 @@ def test_pr016_conexion_websockets():
     driver.execute_script("arguments[0].style.backgroundColor = '#fed7aa'; arguments[0].style.border = '2px solid #ea580c';", boton_login)
     time.sleep(2)
     boton_login.click()
-    time.sleep(2)
+    for _ in range(15):
+        time.sleep(0.5)
+        if "/login" not in driver.current_url:
+            break
 
     driver.get("http://localhost:8081/notificaciones")
-    time.sleep(2)
+    time.sleep(3)
 
     etiqueta_canal = driver.find_element(By.XPATH, "//*[contains(text(), 'Canal en tiempo real')]")
     driver.execute_script("arguments[0].style.backgroundColor = '#e9d5ff'; arguments[0].style.border = '2px solid #9333ea';", etiqueta_canal)

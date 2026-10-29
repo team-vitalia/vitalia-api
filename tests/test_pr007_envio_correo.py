@@ -1,6 +1,6 @@
 import requests
 
-def test_pr020_envio_correo():
+def test_pr007_envio_correo():
     url = "http://127.0.0.1:8000/email-prueba"
     payload = {
         "destinatario": "al222310412@gmail.com",
