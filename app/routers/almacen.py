@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_
 from typing import List
+from app.models.usuario import Usuario
+from app.core.dependencies import get_current_user
 
 from app.database.connection import get_db
 from app.models.inventario import Inventario
@@ -39,6 +41,28 @@ def registrar_lote_inventario(payload: InventarioCreate, db: Session = Depends(g
     db.commit()
     db.refresh(nuevo_lote)
     return nuevo_lote
+
+
+@router.put("/inventario/{lote_id}", response_model=InventarioResponse)
+def actualizar_lote(
+    lote_id: int,
+    payload: InventarioCreate,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    if usuario_actual.rol_id_FK != 1:
+        raise HTTPException(status_code=403, detail="No tienes permiso")
+
+    lote = db.query(Inventario).filter(Inventario.id_PK == lote_id).first()
+    if not lote:
+        raise HTTPException(status_code=404, detail="Lote no encontrado")
+
+    for campo, valor in payload.model_dump().items():
+        setattr(lote, campo, valor)
+
+    db.commit()
+    db.refresh(lote)
+    return lote
 
 
 # 4. Evaluar Interacciones entre Medicamentos (CU-33)
