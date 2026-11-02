@@ -19,6 +19,16 @@ class Usuario(Base):
         nullable=False
     )
 
+    apellido_paterno: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    apellido_materno: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
     correo_electronico: Mapped[str] = mapped_column(
         String(150),
         unique=True,

@@ -17,7 +17,8 @@ from app.services.email_service import construir_plantilla_base
 
 TIPO_CORREO = "correo"
 TIPO_QR = "qr"
-TTL_SEGUNDOS = {TIPO_CORREO: 10 * 60, TIPO_QR: 10 * 60}
+TIPO_CODIGO = "codigo"
+TTL_SEGUNDOS = {TIPO_CORREO: 10 * 60, TIPO_QR: 10 * 60, TIPO_CODIGO: 10 * 60}
 MAX_INTENTOS = 5
 ESPERA_REENVIO_SEGUNDOS = 60
 
@@ -52,7 +53,7 @@ def limpiar(db: Session, usuario: Usuario) -> None:
 
 
 def generar_codigo_correo() -> str:
-    """Se conserva por compatibilidad con código antiguo; el nuevo flujo no lo usa."""
+    """Código numérico de 6 dígitos para la recuperación por correo (flujo con código)."""
     return f"{secrets.randbelow(1_000_000):06d}"
 
 
@@ -123,4 +124,29 @@ def html_enlace_recuperacion(nombre: str, enlace: str) -> str:
             "Recibimos una solicitud para cambiar tu contraseña. Usa el enlace para establecer una nueva. "
             "Si no solicitaste este cambio, ignora este mensaje."
         ),
+        mostrar_recomendacion=False,
+    )
+
+
+def html_codigo_recuperacion(nombre: str, codigo: str) -> str:
+    """Correo con el código de 6 dígitos para restablecer la contraseña."""
+    codigo_html = (
+        '<span style="font-size:28px;letter-spacing:8px;font-weight:900;'
+        f'color:rgb(36,127,118);">{codigo}</span>'
+    )
+    return construir_plantilla_base(
+        titulo="Tu código de recuperación",
+        subtitulo_badge="Recuperación de contraseña",
+        color_badge_bg="rgb(226, 244, 240)",
+        color_badge_txt="rgb(36, 127, 118)",
+        filas_detalle=[
+            ("Usuario", nombre),
+            ("Código", codigo_html),
+            ("Vigencia", f"{TTL_SEGUNDOS[TIPO_CODIGO] // 60} minutos"),
+        ],
+        mensaje_adicional=(
+            "Escribe este código en la pantalla de recuperación para crear una nueva contraseña. "
+            "No lo compartas con nadie. Si no lo solicitaste, ignora este mensaje."
+        ),
+        mostrar_recomendacion=False,
     )

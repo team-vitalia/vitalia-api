@@ -30,6 +30,22 @@ class Paciente(Base):
         nullable=False
     )
 
+    apellido_paterno: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    apellido_materno: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True
+    )
+
+    curp: Mapped[str | None] = mapped_column(
+        String(18),
+        unique=True,
+        nullable=True
+    )
+
     fecha_nacimiento: Mapped[date | None] = mapped_column(
         Date
     )

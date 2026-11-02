@@ -25,6 +25,10 @@ class Doctor(Base):
         String(50)
     )
 
+    rfc: Mapped[str | None] = mapped_column(
+        String(13)
+    )
+
     estado: Mapped[str | None] = mapped_column(
         String(50)
     )

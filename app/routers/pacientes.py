@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
@@ -8,6 +9,7 @@ from app.models.alergia import Alergia # 👈 NUEVO IMPORT
 from app.models.alergia_paciente import AlergiaPaciente # 👈 NUEVO IMPORT
 from app.schemas.paciente import PacienteCrear, PacienteResponse, AlergiaCrear # 👈 AGREGAMOS AlergiaCrear
 from app.core.dependencies import get_current_user
+from app.services.usuario_service import MSG_CURP_DUPLICADA, curp_ya_registrada
 
 
 router = APIRouter(
@@ -54,9 +56,18 @@ def crear_paciente(
 ):
     verificar_permiso_recepcion(usuario_actual)
 
+    if datos.curp and curp_ya_registrada(db, datos.curp):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=MSG_CURP_DUPLICADA
+        )
+
     paciente = Paciente(
         nombre=datos.nombre,
         apellido=datos.apellido,
+        apellido_paterno=datos.apellido_paterno,
+        apellido_materno=datos.apellido_materno,
+        curp=datos.curp,
         fecha_nacimiento=datos.fecha_nacimiento,
         genero=datos.genero,
         telefono=datos.telefono,
@@ -66,7 +77,17 @@ def crear_paciente(
     )
 
     db.add(paciente)
-    db.commit()
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # Respaldo de la restricción UNIQUE (solicitudes simultáneas con la misma CURP).
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=MSG_CURP_DUPLICADA
+        )
+
     db.refresh(paciente)
 
     return paciente

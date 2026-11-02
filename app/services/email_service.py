@@ -82,7 +82,7 @@ async def enviar_correo(destinatario: str, asunto: str, cuerpo_html: str, cuerpo
         cuerpo_texto,
     )
 
-def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: str, color_badge_txt: str, filas_detalle: list[tuple[str, str]], mensaje_adicional: str) -> str:
+def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: str, color_badge_txt: str, filas_detalle: list[tuple[str, str]], mensaje_adicional: str, mostrar_recomendacion: bool = True) -> str:
     detalles_html = ""
     for etiqueta, valor in filas_detalle:
         detalles_html += f"""
@@ -91,6 +91,14 @@ def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: 
             <td style="padding: 10px 14px; border-bottom: 1px solid rgb(238, 244, 242); color: rgb(23, 63, 58); font-size: 14px; font-weight: 700;">{valor}</td>
         </tr>
         """
+
+    # Solo los correos de citas incluyen la recomendación de llegada a la clínica.
+    recomendacion_html = """<div style="background-color: rgb(231, 245, 242); border-left: 4px solid rgb(36, 127, 118); padding: 14px 16px; border-radius: 0 10px 10px 0; margin-bottom: 26px;">
+                    <div style="font-size: 13px; font-weight: 700; color: rgb(23, 104, 95); margin-bottom: 3px;">Recomendación de llegada</div>
+                    <div style="font-size: 12px; color: rgb(63, 100, 94); line-height: 1.5;">
+                        Por favor preséntate en la clínica 10 minutos antes del horario programado para registrar tu llegada en recepción.
+                    </div>
+                </div>""" if mostrar_recomendacion else ""
 
     return f"""
 <!DOCTYPE html>
@@ -124,12 +132,7 @@ def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: 
                     {detalles_html}
                 </table>
 
-                <div style="background-color: rgb(231, 245, 242); border-left: 4px solid rgb(36, 127, 118); padding: 14px 16px; border-radius: 0 10px 10px 0; margin-bottom: 26px;">
-                    <div style="font-size: 13px; font-weight: 700; color: rgb(23, 104, 95); margin-bottom: 3px;">Recomendación de llegada</div>
-                    <div style="font-size: 12px; color: rgb(63, 100, 94); line-height: 1.5;">
-                        Por favor preséntate en la clínica 10 minutos antes del horario programado para registrar tu llegada en recepción.
-                    </div>
-                </div>
+                {recomendacion_html}
 
                 <div style="border-top: 1px solid rgb(235, 242, 240); padding-top: 20px; text-align: center;">
                     <div style="font-size: 11px; color: rgb(154, 169, 166); line-height: 1.6;">
@@ -239,4 +242,3 @@ async def notificar_correo_recordatorio(destinatario: str, paciente_nombre: str,
     html = generar_html_recordatorio_cita(paciente_nombre, doctor_nombre, fecha, hora, intervalo_texto, motivo)
     texto = f"Recordatorio de cita médica para {paciente_nombre} con Dr./Dra. {doctor_nombre} el {fecha} a las {hora}. Falta {intervalo_texto}."
     await enviar_correo(destinatario, asunto, html, texto)
-
