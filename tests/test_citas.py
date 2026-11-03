@@ -62,7 +62,7 @@ def test_doctor_no_puede_consultar_citas():
         assert response.status_code == 403
 
         assert response.json()["detail"] == (
-            "Solo el administrador o recepcionista "
+            "Solo el administrador, coordinador o recepcionista "
             "pueden gestionar citas"
         )
 
