@@ -12,13 +12,16 @@ from app.models.usuario import Usuario
 from app.services.email_service import enviar_correo
 from app.services.recuperacion_service import (
     ESPERA_REENVIO_SEGUNDOS,
+    TIPO_CODIGO,
     TIPO_CORREO,
     TIPO_QR,
     TTL_SEGUNDOS,
     cambiar_password,
     emitir,
+    generar_codigo_correo,
     generar_token_correo,
     generar_token_qr,
+    html_codigo_recuperacion,
     html_enlace_recuperacion,
     limpiar,
     puede_reenviar,
@@ -32,6 +35,11 @@ PASSWORD_MAX = 128
 
 class SolicitudCodigoCorreo(BaseModel):
     correo_electronico: EmailStr
+
+
+class VerificarCodigoCorreo(BaseModel):
+    correo_electronico: EmailStr
+    codigo: str = Field(pattern=r"^\d{6}$")
 
 
 class ConfirmarEnlaceCorreo(BaseModel):
@@ -57,6 +65,59 @@ def _buscar_usuario(db: Session, usuario_id: int) -> Usuario:
     if not usuario:
         raise HTTPException(status_code=400, detail="El enlace de recuperación no es válido o ha caducado.")
     return usuario
+
+
+@router.post("/codigo/solicitar")
+async def solicitar_codigo_correo(datos: SolicitudCodigoCorreo, db: Session = Depends(get_db)):
+    """Paso 1 del flujo con código: envía un código de 6 dígitos al correo."""
+    correo = str(datos.correo_electronico).strip().lower()
+    usuario = db.query(Usuario).filter(Usuario.correo_electronico == correo).first()
+
+    # Respuesta genérica para no revelar si existe una cuenta.
+    respuesta_generica = {
+        "mensaje": "Si la cuenta existe y está activa, recibirás un código de 6 dígitos en tu correo.",
+        "espera_segundos": ESPERA_REENVIO_SEGUNDOS,
+    }
+    if not usuario or usuario.estado != "activo":
+        return respuesta_generica
+
+    if not puede_reenviar(usuario, TIPO_CODIGO):
+        datos_token = usuario.token_restablecimiento.split(":", 3)
+        exp = int(datos_token[1])
+        emitido_en = exp - TTL_SEGUNDOS[TIPO_CODIGO]
+        restante = max(1, ESPERA_REENVIO_SEGUNDOS - int(time.time() - emitido_en))
+        respuesta_generica["espera_segundos"] = restante
+        return respuesta_generica
+
+    codigo = generar_codigo_correo()
+    emitir(db, usuario, TIPO_CODIGO, codigo)
+    html = html_codigo_recuperacion(usuario.nombre, codigo)
+    texto = (
+        f"Hola {usuario.nombre}. Tu código para cambiar tu contraseña es {codigo}.\n"
+        f"Vence en {TTL_SEGUNDOS[TIPO_CODIGO] // 60} minutos. No lo compartas con nadie."
+    )
+    enviado = await enviar_correo(correo, "Tu código de recuperación - VITALIA", html, texto)
+    if not enviado:
+        limpiar(db, usuario)
+        raise HTTPException(status_code=503, detail="No fue posible enviar el correo. Intenta más tarde.")
+    return respuesta_generica
+
+
+@router.post("/codigo/verificar")
+def verificar_codigo_correo(datos: VerificarCodigoCorreo, db: Session = Depends(get_db)):
+    """
+    Paso 2: comprueba el código (máx. 5 intentos y 10 min). Si es correcto lo
+    consume y entrega un token de un solo uso para el paso 3, que es el mismo
+    POST /correo/confirmar del enlace por correo.
+    """
+    correo = str(datos.correo_electronico).strip().lower()
+    usuario = db.query(Usuario).filter(Usuario.correo_electronico == correo).first()
+    if not usuario or usuario.estado != "activo" or not validar(db, usuario, TIPO_CODIGO, datos.codigo):
+        raise HTTPException(status_code=400, detail="El código no es válido o ha caducado.")
+
+    token = generar_token_correo()
+    emitir(db, usuario, TIPO_CORREO, token)
+    return {"usuario_id": usuario.id_PK, "token": token}
 
 
 @router.post("/correo/solicitar")

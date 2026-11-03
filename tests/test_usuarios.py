@@ -154,7 +154,7 @@ def test_usuario_normal_consulta_usuarios():
 
         # Verifica que se muestre el mensaje esperado.
         assert response.json()["detail"] == (
-            "Solo el administrador puede consultar los usuarios"
+            "Solo el administrador o coordinador pueden consultar los usuarios"
         )
 
     finally:

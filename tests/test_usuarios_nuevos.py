@@ -405,7 +405,7 @@ def test_crear_paciente_sin_apellido():
         assert response.status_code == 400
 
         assert response.json()["detail"] == (
-            "El apellido es obligatorio para pacientes"
+            "El apellido paterno es obligatorio para pacientes"
         )
 
     finally:
@@ -445,7 +445,7 @@ def test_crear_usuario_sin_permiso():
         assert response.status_code == 403
 
         assert response.json()["detail"] == (
-            "Solo el administrador puede crear usuarios"
+            "Solo el administrador o coordinador pueden crear usuarios"
         )
 
     finally:

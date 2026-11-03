@@ -63,8 +63,7 @@ def test_doctor_no_puede_consultar_doctores():
         assert response.status_code == 403
 
         assert response.json()["detail"] == (
-            "Solo el administrador o recepcionista "
-            "pueden gestionar doctores"
+            "No tienes permiso para consultar la lista de médicos"
         )
 
     finally:
