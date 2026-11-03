@@ -43,7 +43,15 @@ DESACTUALIZADAS = {
         None: "la fixture parchea enviar_correo_sincrono; el router ahora usa enviar_correo (async) y las rutas /correo/* y /codigo/* cambiaron de significado",
     },
     "tests/test_registro_paciente.py": {
-        None: "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_funciona_sin_sesion_y_crea_paciente": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_normaliza_correo_y_curp": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_apellido_materno_es_opcional": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_correo_duplicado_400_con_mensaje_claro": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_curp_duplicada_409_con_mensaje_claro": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_unique_de_base_de_datos_respalda_la_curp": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_unique_de_correo_respalda_el_correo": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_rol_paciente_inactivo_400": "el registro público ahora exige fecha_nacimiento y genero",
+        "test_registro_publico_error_inesperado_no_expone_detalles": "el registro público ahora exige fecha_nacimiento y genero",
     },
     "tests/test_doctores.py": {
         "test_administrador_consulta_doctores": "el mock de la consulta ya no coincide con las consultas del router",
@@ -79,7 +87,7 @@ DESACTUALIZADAS = {
 def pytest_collection_modifyitems(config, items):
     for item in items:
         archivo = item.nodeid.split("::")[0].replace("\\", "/")
-        nombre = item.name
+        nombre = getattr(item, "originalname", None) or item.name
 
         if archivo in REQUIERE_ENTORNO_EXTERNO:
             item.add_marker(pytest.mark.skip(reason=REQUIERE_ENTORNO_EXTERNO[archivo]))

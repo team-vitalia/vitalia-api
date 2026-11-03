@@ -64,7 +64,7 @@ jobs:
         run: alembic upgrade head
 
       - name: Ejecutar pruebas (pytest)
-        run: pytest tests -v -rxs
+        run: pytest tests -v -rfExs
 
   docker-build:
     name: Imagen Docker + smoke test
