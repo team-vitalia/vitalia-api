@@ -8,12 +8,8 @@ from app.core.dependencies import get_current_user
 from app.database.connection import get_db
 
 
-"""
-PRUEBA 21
-
-"""
-
 client = TestClient(app)
+
 
 def crear_usuario_prueba(
     id_usuario,
@@ -67,8 +63,7 @@ def test_doctor_no_puede_consultar_doctores():
         assert response.status_code == 403
 
         assert response.json()["detail"] == (
-            "Solo el administrador o recepcionista "
-            "pueden gestionar doctores"
+            "No tienes permiso para consultar la lista de médicos"
         )
 
     finally:
