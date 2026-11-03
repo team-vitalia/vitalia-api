@@ -8,8 +8,12 @@ from app.core.dependencies import get_current_user
 from app.database.connection import get_db
 
 
-client = TestClient(app)
+"""
+PRUEBA 21
 
+"""
+
+client = TestClient(app)
 
 def crear_usuario_prueba(
     id_usuario,
