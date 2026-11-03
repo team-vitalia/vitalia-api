@@ -1,13 +1,13 @@
-from fastapi import APIRouter, Depends, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func # 👈 Importante
+from sqlalchemy import func
 
 from app.database.connection import get_db
 from app.models.medicamento import Medicamento
-from app.models.inventario import Inventario # 👈 Asegúrate de tener este modelo importado
+from app.models.inventario import Inventario
 from app.models.usuario import Usuario
 from app.core.dependencies import get_current_user
-from app.schemas.medicamento import MedicamentoResponse
+from app.schemas.medicamento import MedicamentoResponse, MedicamentoCreate
 
 router = APIRouter(prefix="/api/medicamentos", tags=["Medicamentos"])
 
@@ -20,7 +20,6 @@ def buscar_medicamentos(
     if usuario_actual.rol_id_FK not in [1, 2, 4]:
         raise HTTPException(status_code=403, detail="No tienes permiso")
 
-    # Hacemos un Left Join con inventario para sumar el stock real
     query = (
         db.query(
             Medicamento,
@@ -35,7 +34,6 @@ def buscar_medicamentos(
         
     resultados = query.order_by(Medicamento.nombre).limit(50).all()
 
-    # Formateamos la respuesta para que incluya el stock
     return [
         {
             "id_PK": med.id_PK,
@@ -46,3 +44,27 @@ def buscar_medicamentos(
         }
         for med, stock in resultados
     ]
+
+
+@router.post("/", response_model=MedicamentoResponse, status_code=status.HTTP_201_CREATED)
+def crear_medicamento(
+    payload: MedicamentoCreate,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    # Cambia 1 si el ID del rol administrador en tu sistema es diferente.
+    if usuario_actual.rol_id_FK != 1:
+        raise HTTPException(status_code=403, detail="No tienes permiso")
+
+    nuevo = Medicamento(**payload.model_dump())
+    db.add(nuevo)
+    db.commit()
+    db.refresh(nuevo)
+
+    return {
+        "id_PK": nuevo.id_PK,
+        "nombre": nuevo.nombre,
+        "presentacion": nuevo.presentacion,
+        "requiere_receta": nuevo.requiere_receta,
+        "stock_actual": 0,
+    }

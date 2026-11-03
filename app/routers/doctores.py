@@ -142,6 +142,7 @@ def serializar_doctor(db: Session, doctor: Doctor):
             doctor.usuario.correo_electronico if doctor.usuario else None
         ),
         "numero_licencia": doctor.numero_licencia,
+        "rfc": doctor.rfc,
         "estado": doctor.estado,
         "costo_consulta": (
             float(doctor.costo_consulta)
@@ -319,6 +320,7 @@ def crear_doctor(
         nuevo_doctor = Doctor(
             usuario_id_FK=usuario.id_PK,
             especialidad_id_FK=datos.especialidad_id_FK,
+            rfc=datos.rfc,
             numero_licencia=validar_licencia(
                 db, datos.numero_licencia
             ),
@@ -392,6 +394,9 @@ def actualizar_doctor_admin(
             doctor.numero_licencia = validar_licencia(
                 db, cambios["numero_licencia"], doctor.id_PK
             )
+
+        if "rfc" in cambios:
+            doctor.rfc = cambios["rfc"]
 
         if "costo_consulta" in cambios:
             doctor.costo_consulta = cambios["costo_consulta"]

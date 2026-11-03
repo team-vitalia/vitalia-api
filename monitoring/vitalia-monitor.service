@@ -1,0 +1,20 @@
+[Unit]
+Description=VITALIA API and VPS resource monitor
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=vitalia-monitor
+EnvironmentFile=/etc/vitalia-monitor.env
+WorkingDirectory=/opt/vitalia-api/monitoring
+ExecStart=/usr/bin/python3 /opt/vitalia-api/monitoring/monitor_vitalia.py
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

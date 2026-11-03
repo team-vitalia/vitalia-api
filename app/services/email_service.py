@@ -9,7 +9,12 @@ from dotenv import load_dotenv
 logger = logging.getLogger("vitalia.email_service")
 
 def obtener_configuracion_smtp():
-    load_dotenv(override=False)
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    env_path = os.path.join(base_dir, ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=False)
+    else:
+        load_dotenv(override=False)
     host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
     port = int(os.getenv("SMTP_PORT", "587"))
     user = os.getenv("SMTP_USER", os.getenv("SMTP_EMAIL", "")).strip()
@@ -77,7 +82,7 @@ async def enviar_correo(destinatario: str, asunto: str, cuerpo_html: str, cuerpo
         cuerpo_texto,
     )
 
-def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: str, color_badge_txt: str, filas_detalle: list[tuple[str, str]], mensaje_adicional: str) -> str:
+def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: str, color_badge_txt: str, filas_detalle: list[tuple[str, str]], mensaje_adicional: str, mostrar_recomendacion: bool = True) -> str:
     detalles_html = ""
     for etiqueta, valor in filas_detalle:
         detalles_html += f"""
@@ -86,6 +91,14 @@ def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: 
             <td style="padding: 10px 14px; border-bottom: 1px solid rgb(238, 244, 242); color: rgb(23, 63, 58); font-size: 14px; font-weight: 700;">{valor}</td>
         </tr>
         """
+
+    # Solo los correos de citas incluyen la recomendación de llegada a la clínica.
+    recomendacion_html = """<div style="background-color: rgb(231, 245, 242); border-left: 4px solid rgb(36, 127, 118); padding: 14px 16px; border-radius: 0 10px 10px 0; margin-bottom: 26px;">
+                    <div style="font-size: 13px; font-weight: 700; color: rgb(23, 104, 95); margin-bottom: 3px;">Recomendación de llegada</div>
+                    <div style="font-size: 12px; color: rgb(63, 100, 94); line-height: 1.5;">
+                        Por favor preséntate en la clínica 10 minutos antes del horario programado para registrar tu llegada en recepción.
+                    </div>
+                </div>""" if mostrar_recomendacion else ""
 
     return f"""
 <!DOCTYPE html>
@@ -119,12 +132,7 @@ def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: 
                     {detalles_html}
                 </table>
 
-                <div style="background-color: rgb(231, 245, 242); border-left: 4px solid rgb(36, 127, 118); padding: 14px 16px; border-radius: 0 10px 10px 0; margin-bottom: 26px;">
-                    <div style="font-size: 13px; font-weight: 700; color: rgb(23, 104, 95); margin-bottom: 3px;">Recomendación de llegada</div>
-                    <div style="font-size: 12px; color: rgb(63, 100, 94); line-height: 1.5;">
-                        Por favor preséntate en la clínica 10 minutos antes del horario programado para registrar tu llegada en recepción.
-                    </div>
-                </div>
+                {recomendacion_html}
 
                 <div style="border-top: 1px solid rgb(235, 242, 240); padding-top: 20px; text-align: center;">
                     <div style="font-size: 11px; color: rgb(154, 169, 166); line-height: 1.6;">
@@ -155,6 +163,26 @@ def generar_html_cita_agendada(paciente_nombre: str, doctor_nombre: str, fecha: 
         filas_detalle=filas,
         mensaje_adicional=f"Hola {paciente_nombre}, tu cita médica ha sido registrada con éxito en nuestro sistema de atención clínica. A continuación encontrarás los detalles de tu consulta:"
     )
+
+def html_enlace_recuperacion(nombre: str, enlace: str) -> str:
+    enlace_html = (enlace.replace("&", "&amp;").replace('"', "&quot;")
+                   .replace("<", "&lt;").replace(">", "&gt;"))
+    return construir_plantilla_base(
+        titulo="Restablece tu contraseña",
+        subtitulo_badge="Recuperación de contraseña",
+        color_badge_bg="rgb(226, 244, 240)",
+        color_badge_txt="rgb(36, 127, 118)",
+        filas_detalle=[
+            ("Usuario", nombre),
+            ("Acceso", f'<a href="{enlace_html}">Cambiar mi contraseña</a>'),
+            ("Vigencia", "10 minutos"),
+        ],
+        mensaje_adicional=(
+            "Recibimos una solicitud para cambiar tu contraseña. Usa el enlace para establecer una nueva. "
+            "Si no solicitaste este cambio, ignora este mensaje."
+        ),
+    )
+
 
 def generar_html_cita_reprogramada(paciente_nombre: str, doctor_nombre: str, nueva_fecha: str, nueva_hora_inicio: str, nueva_hora_fin: str, motivo: str) -> str:
     filas = [

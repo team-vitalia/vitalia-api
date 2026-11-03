@@ -16,6 +16,17 @@ from app.core.dependencies import get_current_user
 from app.models.paciente import Paciente
 from app.models.doctor import Doctor
 from app.models.especialidad import Especialidad
+from app.core.validaciones import (
+    componer_apellido,
+    normalizar_correo,
+    validar_nombre_persona,
+)
+from app.services.usuario_service import (
+    ROL_ADMIN,
+    ROL_COORDINADOR,
+    ROL_PACIENTE,
+    crear_usuario_con_perfil,
+)
 
 
 router = APIRouter(
@@ -43,16 +54,58 @@ def obtener_usuarios(
         .all()
     )
 
+    # Perfil de doctor y sus especialidades en 3 consultas (sin N+1).
+    nombres_especialidad = {
+        e.id_PK: e.nombre for e in db.query(Especialidad).all()
+    }
+
+    asignadas: dict[int, list[dict]] = {}
+    for fila in db.query(DoctorEspecialidad).all():
+        asignadas.setdefault(fila.doctor_id_FK, []).append({
+            "id_PK": fila.especialidad_id_FK,
+            "nombre": nombres_especialidad.get(fila.especialidad_id_FK, "—")
+        })
+
+    perfil_doctor: dict[int, dict] = {}
+    for doc in db.query(Doctor).all():
+        lista = asignadas.get(doc.id_PK)
+
+        # Compatibilidad con doctores antiguos sin tabla intermedia.
+        if not lista and doc.especialidad_id_FK:
+            lista = [{
+                "id_PK": doc.especialidad_id_FK,
+                "nombre": nombres_especialidad.get(doc.especialidad_id_FK, "—")
+            }]
+
+        perfil_doctor[doc.usuario_id_FK] = {
+            "doctor_id": doc.id_PK,
+            "numero_licencia": doc.numero_licencia,
+            "rfc": doc.rfc,
+            "costo_consulta": (
+                float(doc.costo_consulta)
+                if doc.costo_consulta is not None else None
+            ),
+            "especialidades": sorted(lista or [], key=lambda e: e["nombre"])
+        }
+
     return [
         {
             "id_PK": usuario.id_PK,
             "nombre": usuario.nombre,
+            "apellido_paterno": usuario.apellido_paterno,
+            "apellido_materno": usuario.apellido_materno,
             "correo_electronico": usuario.correo_electronico,
+            "telefono": usuario.telefono,
             "rol_id_FK": usuario.rol_id_FK,
             "rol": usuario.rol.nombre if usuario.rol else None,
             "estado": usuario.estado,
             "creado_en": usuario.creado_en,
-            "ultimo_acceso": usuario.ultimo_acceso
+            "ultimo_acceso": usuario.ultimo_acceso,
+            "doctor_id": perfil_doctor.get(usuario.id_PK, {}).get("doctor_id"),
+            "numero_licencia": perfil_doctor.get(usuario.id_PK, {}).get("numero_licencia"),
+            "rfc": perfil_doctor.get(usuario.id_PK, {}).get("rfc"),
+            "costo_consulta": perfil_doctor.get(usuario.id_PK, {}).get("costo_consulta"),
+            "especialidades": perfil_doctor.get(usuario.id_PK, {}).get("especialidades", [])
         }
         for usuario in usuarios
     ]
@@ -68,209 +121,33 @@ def crear_usuario(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    # Solo el administrador o coordinador pueden crear usuarios
-    if usuario_actual.rol_id_FK not in [1, 5]:
+    """
+    Creación ADMINISTRATIVA de cuentas (cualquier rol permitido).
+
+    Requiere sesión. El registro público de pacientes es otro endpoint:
+    POST /api/auth/registro.
+    """
+
+    if usuario_actual.rol_id_FK not in [ROL_ADMIN, ROL_COORDINADOR]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo el administrador o coordinador pueden crear usuarios"
         )
 
-    # El coordinador no puede crear administradores ni otros coordinadores
-    if usuario_actual.rol_id_FK == 5 and datos.rol_id_FK in [1, 5]:
+    if (
+        usuario_actual.rol_id_FK == ROL_COORDINADOR
+        and datos.rol_id_FK in [ROL_ADMIN, ROL_COORDINADOR]
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="El coordinador no puede crear administradores ni coordinadores"
         )
 
-    # Verificar correo
-    usuario_existente = (
-        db.query(Usuario)
-        .filter(
-            Usuario.correo_electronico == datos.correo_electronico
-        )
-        .first()
+    return crear_usuario_con_perfil(
+        db=db,
+        datos=datos,
+        hash_contrasena=generar_hash_password(datos.password)
     )
-
-    if usuario_existente:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Ya existe un usuario con ese correo electrónico"
-        )
-
-    # Verificar rol
-    rol = (
-        db.query(Role)
-        .filter(
-            Role.id_PK == datos.rol_id_FK,
-            Role.esta_activo == True
-        )
-        .first()
-    )
-
-    if not rol:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El rol seleccionado no existe o está inactivo"
-        )
-
-    try:
-        # ==========================================
-        # 1. CREAR USUARIO
-        # ==========================================
-
-        nuevo_usuario = Usuario(
-            nombre=datos.nombre,
-            correo_electronico=datos.correo_electronico,
-            hash_contrasena=generar_hash_password(datos.password),
-            rol_id_FK=datos.rol_id_FK,
-            estado="activo",
-            telefono=datos.telefono,
-            intentos_fallidos=0
-        )
-
-        db.add(nuevo_usuario)
-
-        # Generamos el ID del usuario antes de continuar
-        db.flush()
-
-        # ==========================================
-        # 2. SI ES DOCTOR
-        # ==========================================
-
-        
-        if datos.rol_id_FK == 2:
-
-            # Combinar la especialidad antigua con la nueva lista.
-            especialidad_ids = list(datos.especialidad_ids)
-
-            if datos.especialidad_id_FK is not None:
-                if datos.especialidad_id_FK not in especialidad_ids:
-                    especialidad_ids.append(datos.especialidad_id_FK)
-
-            # Evitar especialidades duplicadas.
-            if len(especialidad_ids) != len(set(especialidad_ids)):
-                raise HTTPException(
-                    status_code=422,
-                    detail="No puedes asignar una especialidad más de una vez"
-                )
-
-            # Validar que todas existan y estén activas.
-            if especialidad_ids:
-                especialidades = (
-                    db.query(Especialidad)
-                    .filter(
-                        Especialidad.id_PK.in_(especialidad_ids),
-                        Especialidad.esta_activo.is_(True)
-                    )
-                    .all()
-                )
-
-                if len(especialidades) != len(especialidad_ids):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Una o más especialidades no existen o están inactivas"
-                    )
-
-            # Validar licencia duplicada.
-            licencia = (
-                datos.numero_licencia.strip()
-                if datos.numero_licencia
-                else None
-            )
-
-            if licencia:
-                duplicado = (
-                    db.query(Doctor)
-                    .filter(
-                        func.lower(Doctor.numero_licencia) == licencia.lower()
-                    )
-                    .first()
-                )
-
-                if duplicado:
-                    raise HTTPException(
-                        status_code=409,
-                        detail="El número de licencia ya está registrado"
-                    )
-
-            # Crear perfil del médico.
-            nuevo_doctor = Doctor(
-                usuario_id_FK=nuevo_usuario.id_PK,
-                especialidad_id_FK=datos.especialidad_id_FK,
-                numero_licencia=licencia,
-                estado="activo",
-                costo_consulta=datos.costo_consulta
-            )
-
-            db.add(nuevo_doctor)
-            db.flush()
-
-            # Guardar cada especialidad en doctor_especialidades.
-            for especialidad_id in especialidad_ids:
-                db.add(
-                    DoctorEspecialidad(
-                        doctor_id_FK=nuevo_doctor.id_PK,
-                        especialidad_id_FK=especialidad_id
-                    )
-                )
-
-        # ==========================================
-        # 3. SI ES PACIENTE
-        # ==========================================
-
-        elif datos.rol_id_FK == 3:
-
-            if not datos.apellido:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="El apellido es obligatorio para pacientes"
-                )
-
-            nuevo_paciente = Paciente(
-                # Relación entre paciente y usuario
-                usuario_id_FK=nuevo_usuario.id_PK,
-
-                nombre=datos.nombre,
-                apellido=datos.apellido,
-                fecha_nacimiento=datos.fecha_nacimiento,
-                genero=datos.genero,
-                telefono=datos.telefono,
-                direccion=datos.direccion,
-                correo_electronico=datos.correo_electronico,
-                estado="activo"
-            )
-
-            db.add(nuevo_paciente)
-
-        # ==========================================
-        # 4. ADMIN / RECEPCIÓN
-        # ==========================================
-        # No necesitan registro adicional.
-
-        db.commit()
-        db.refresh(nuevo_usuario)
-
-        return nuevo_usuario
-
-    except HTTPException:
-        db.rollback()
-        raise
-
-    except Exception as e:
-        db.rollback()
-        import traceback
-        print("=" * 60)
-        print("🚨 ERROR AL CREAR USUARIO:")
-        print("=" * 60)
-        traceback.print_exc()
-        print(f"Tipo: {type(e).__name__}")
-        print(f"Mensaje: {str(e)}")
-        print("=" * 60)
-
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error: {str(e)}"
-        )
 
 
 @router.patch("/{usuario_id}")
@@ -333,16 +210,47 @@ def actualizar_usuario(
                 detail="El nombre es obligatorio"
             )
 
-        cambios["nombre"] = nombre
+        try:
+            cambios["nombre"] = validar_nombre_persona(nombre, "El nombre")
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+
+    # Validar apellidos (opcionales; vacío = quitar el apellido).
+    for campo, etiqueta in (
+        ("apellido_paterno", "El apellido paterno"),
+        ("apellido_materno", "El apellido materno"),
+    ):
+        if campo in cambios:
+            valor = (cambios[campo] or "").strip()
+
+            if not valor:
+                cambios[campo] = None
+                continue
+
+            try:
+                cambios[campo] = validar_nombre_persona(valor, etiqueta)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=str(error))
+
+    # Un paciente siempre necesita apellido paterno (pacientes.apellido es obligatorio).
+    if (
+        usuario.rol_id_FK == ROL_PACIENTE
+        and "apellido_paterno" in cambios
+        and not cambios["apellido_paterno"]
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="El apellido paterno es obligatorio para pacientes"
+        )
 
     # Validar que el correo no pertenezca a otra cuenta.
     if (
         "correo_electronico" in cambios
         and cambios["correo_electronico"] is not None
     ):
-        correo = str(
-            cambios["correo_electronico"]
-        ).strip().lower()
+        correo = normalizar_correo(
+            str(cambios["correo_electronico"])
+        )
 
         duplicado = (
             db.query(Usuario)
@@ -485,6 +393,26 @@ def actualizar_usuario(
         for campo, valor in cambios.items():
             setattr(usuario, campo, valor)
 
+        # Los apellidos viven en `usuarios` y en la ficha `pacientes`:
+        # se mantienen sincronizados para no duplicar datos contradictorios.
+        if (
+            usuario.rol_id_FK == ROL_PACIENTE
+            and ("apellido_paterno" in cambios or "apellido_materno" in cambios)
+        ):
+            ficha = (
+                db.query(Paciente)
+                .filter(Paciente.usuario_id_FK == usuario.id_PK)
+                .first()
+            )
+
+            if ficha:
+                ficha.apellido_paterno = usuario.apellido_paterno
+                ficha.apellido_materno = usuario.apellido_materno
+                ficha.apellido = componer_apellido(
+                    usuario.apellido_paterno,
+                    usuario.apellido_materno
+                )
+
         db.commit()
         db.refresh(usuario)
 
@@ -498,6 +426,8 @@ def actualizar_usuario(
     return {
         "id_PK": usuario.id_PK,
         "nombre": usuario.nombre,
+        "apellido_paterno": usuario.apellido_paterno,
+        "apellido_materno": usuario.apellido_materno,
         "correo_electronico": usuario.correo_electronico,
         "telefono": usuario.telefono,
         "rol_id_FK": usuario.rol_id_FK,
