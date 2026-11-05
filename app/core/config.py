@@ -1,17 +1,13 @@
 import os
-
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
 class Settings:
-    APP_NAME: str = "VITALIA API"
-    APP_VERSION: str = "1.0.0"
-
     SECRET_KEY: str = os.getenv(
         "SECRET_KEY",
-        "clave-temporal-vitalia"
+        "clave-secreta-por-defecto"
     )
 
     ALGORITHM: str = "HS256"
@@ -22,6 +18,14 @@ class Settings:
     FRONTEND_RESET_URL: str = os.getenv(
         "FRONTEND_RESET_URL",
         "http://192.168.100.14:8081/recuperar"
+    )
+    GROQ_API_KEY: str = os.getenv(
+        "GROQ_API_KEY",
+        ""
+    )
+    GROQ_MODEL: str = os.getenv(
+        "GROQ_MODEL",
+        "openai/gpt-oss-120b"
     )
 
 

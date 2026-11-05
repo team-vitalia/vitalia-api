@@ -22,6 +22,7 @@ from app.routers.websocket import router as websocket_router, email_prueba
 from app.routers.contratos import router as contratos_router
 from app.routers.calendar import router as calendar_router
 from app.routers.colas import router as colas_router
+from app.routers.asistente_ia import router as asistente_ia_router
 
 from app.routers.almacen import router as almacen_router
 from app.routers.notificaciones import router as notificaciones_router
@@ -67,6 +68,7 @@ app.include_router(websocket_router)
 app.include_router(contratos_router)
 app.include_router(calendar_router)
 app.include_router(colas_router)
+app.include_router(asistente_ia_router)
 
 # Registro de rutas del Módulo A3 (Almacén e Inventarios)
 app.include_router(almacen_router)
