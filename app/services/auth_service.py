@@ -22,15 +22,12 @@ def autenticar_usuario(
         .first()
     )
 
-    # Usuario no encontrado
     if not usuario:
         return None
 
-    # Usuario bloqueado/inactivo
     if usuario.estado != "activo":
         return None
 
-    # Contraseña incorrecta
     if not verificar_password(
         password,
         usuario.hash_contrasena
@@ -40,7 +37,6 @@ def autenticar_usuario(
 
         return None
 
-    # Login correcto
     usuario.intentos_fallidos = 0
     usuario.ultimo_acceso = datetime.now()
 
@@ -48,11 +44,13 @@ def autenticar_usuario(
     db.refresh(usuario)
 
     token = crear_access_token(
-        {
+        data={
             "sub": str(usuario.id_PK),
             "correo": usuario.correo_electronico,
-            "rol_id": usuario.rol_id_FK
-        }
+            "rol_id": usuario.rol_id_FK,
+            "clinica_id": usuario.clinica_id_FK,
+        },
+        clinica_id=usuario.clinica_id_FK
     )
 
     return {

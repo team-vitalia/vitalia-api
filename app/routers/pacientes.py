@@ -2,15 +2,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user
 from app.database.connection import get_db
+from app.models.alergia import Alergia
+from app.models.alergia_paciente import AlergiaPaciente
 from app.models.paciente import Paciente
 from app.models.usuario import Usuario
-from app.models.alergia import Alergia # 👈 NUEVO IMPORT
-from app.models.alergia_paciente import AlergiaPaciente # 👈 NUEVO IMPORT
-from app.schemas.paciente import PacienteCrear, PacienteResponse, AlergiaCrear # 👈 AGREGAMOS AlergiaCrear
-from app.core.dependencies import get_current_user
+from app.schemas.paciente import AlergiaCrear, PacienteCrear, PacienteResponse
+from app.services.suscripcion_service import validar_limite_pacientes
 from app.services.usuario_service import MSG_CURP_DUPLICADA, curp_ya_registrada
-
 
 router = APIRouter(
     prefix="/api/pacientes",
@@ -37,11 +37,38 @@ def obtener_pacientes(
 
     pacientes = (
         db.query(Paciente)
+        .filter(Paciente.clinica_id_FK == usuario_actual.clinica_id_FK)
         .order_by(Paciente.id_PK)
         .all()
     )
 
     return pacientes
+
+
+@router.get("/{paciente_id}", response_model=PacienteResponse)
+def obtener_paciente(
+    paciente_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    verificar_permiso_recepcion(usuario_actual)
+
+    paciente = (
+        db.query(Paciente)
+        .filter(
+            Paciente.id_PK == paciente_id,
+            Paciente.clinica_id_FK == usuario_actual.clinica_id_FK
+        )
+        .first()
+    )
+
+    if not paciente:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Paciente no encontrado"
+        )
+
+    return paciente
 
 
 @router.post(
@@ -56,6 +83,8 @@ def crear_paciente(
 ):
     verificar_permiso_recepcion(usuario_actual)
 
+    validar_limite_pacientes(db, usuario_actual.clinica_id_FK)
+
     if datos.curp and curp_ya_registrada(db, datos.curp):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -63,6 +92,7 @@ def crear_paciente(
         )
 
     paciente = Paciente(
+        clinica_id_FK=usuario_actual.clinica_id_FK,
         nombre=datos.nombre,
         apellido=datos.apellido,
         apellido_paterno=datos.apellido_paterno,
@@ -81,7 +111,6 @@ def crear_paciente(
     try:
         db.commit()
     except IntegrityError:
-        # Respaldo de la restricción UNIQUE (solicitudes simultáneas con la misma CURP).
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -93,7 +122,6 @@ def crear_paciente(
     return paciente
 
 
-# 👇 NUEVO ENDPOINT PARA EL CU-30 👇
 @router.post("/{paciente_id}/alergias")
 def agregar_alergia(
     paciente_id: int,
@@ -101,35 +129,38 @@ def agregar_alergia(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    # Permitimos al médico (2) modificar el expediente
     if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
         raise HTTPException(status_code=403, detail="No tienes permiso para modificar expedientes")
 
-    paciente = db.query(Paciente).filter(Paciente.id_PK == paciente_id).first()
+    paciente = (
+        db.query(Paciente)
+        .filter(
+            Paciente.id_PK == paciente_id,
+            Paciente.clinica_id_FK == usuario_actual.clinica_id_FK
+        )
+        .first()
+    )
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
-    # Buscamos si la alergia ya existe en el catálogo general (tabla alergias)
     alergia = db.query(Alergia).filter(Alergia.nombre.ilike(datos.nombre)).first()
-    
-    # Si no existe, la creamos en el catálogo maestro
+
     if not alergia:
         alergia = Alergia(
-            nombre=datos.nombre, 
+            nombre=datos.nombre,
             severidad=datos.severidad
         )
         db.add(alergia)
-        db.flush() # Para obtener el ID de la nueva alergia
+        db.flush()
 
-    # Vinculamos la alergia al paciente en la tabla intermedia
     nueva_alergia_paciente = AlergiaPaciente(
         paciente_id_FK=paciente_id,
         alergia_id_FK=alergia.id_PK,
         severidad=datos.severidad,
         notas=datos.notas
     )
-    
+
     db.add(nueva_alergia_paciente)
     db.commit()
-    
+
     return {"mensaje": "Alergia agregada correctamente al expediente"}

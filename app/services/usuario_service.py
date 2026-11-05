@@ -27,7 +27,6 @@ MSG_CURP_DUPLICADA = "Esta CURP ya está registrada"
 
 
 def curp_ya_registrada(db: Session, curp: str, excluir_paciente_id: int | None = None) -> bool:
-    """True si otro paciente ya tiene esa CURP (la CURP llega ya normalizada)."""
     consulta = db.query(Paciente).filter(Paciente.curp == curp)
     if excluir_paciente_id is not None:
         consulta = consulta.filter(Paciente.id_PK != excluir_paciente_id)
@@ -35,11 +34,6 @@ def curp_ya_registrada(db: Session, curp: str, excluir_paciente_id: int | None =
 
 
 def _conflicto_desde_integridad(error: IntegrityError) -> HTTPException:
-    """
-    Red de seguridad ante condiciones de carrera: dos solicitudes simultáneas
-    pueden pasar la verificación previa, pero la restricción UNIQUE de la base
-    de datos rechaza la segunda. Se traduce al mismo mensaje claro.
-    """
     texto = str(getattr(error, "orig", error)).lower()
     if "curp" in texto:
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=MSG_CURP_DUPLICADA)
@@ -55,14 +49,14 @@ def crear_usuario_con_perfil(
     db: Session,
     datos: UsuarioCrear,
     hash_contrasena: str,
+    clinica_id: int | None = None,
 ) -> Usuario:
-    """
-    Crea el usuario y, según el rol, su perfil de doctor o de paciente en una
-    sola transacción. Si algo falla se hace rollback y no queda nada a medias.
+    target_clinica_id = (
+        clinica_id
+        if clinica_id is not None
+        else (getattr(datos, "clinica_id_FK", None) or getattr(datos, "clinica_id", None) or 1)
+    )
 
-    `hash_contrasena` llega ya calculado: este servicio nunca ve la contraseña.
-    """
-    # ------------------------------------------------------------------ correo
     usuario_existente = (
         db.query(Usuario)
         .filter(Usuario.correo_electronico == datos.correo_electronico)
@@ -76,7 +70,7 @@ def crear_usuario_con_perfil(
 
     rol = (
         db.query(Role)
-        .filter(Role.id_PK == datos.rol_id_FK, Role.esta_activo == True)  
+        .filter(Role.id_PK == datos.rol_id_FK, Role.esta_activo == True)
         .first()
     )
     if not rol:
@@ -104,6 +98,7 @@ def crear_usuario_con_perfil(
                 )
 
         nuevo_usuario = Usuario(
+            clinica_id_FK=target_clinica_id,
             nombre=datos.nombre,
             apellido_paterno=datos.apellido_paterno,
             apellido_materno=datos.apellido_materno,
@@ -181,6 +176,7 @@ def crear_usuario_con_perfil(
         elif datos.rol_id_FK == ROL_PACIENTE:
             db.add(
                 Paciente(
+                    clinica_id_FK=target_clinica_id,
                     usuario_id_FK=nuevo_usuario.id_PK,
                     nombre=datos.nombre,
                     apellido=componer_apellido(datos.apellido_paterno, datos.apellido_materno),

@@ -1,33 +1,33 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-
-from app.database.connection import get_db
-from app.models.usuario import Usuario
-from app.models.role import Role
 from sqlalchemy import func
-from app.models.doctor_especialidad import DoctorEspecialidad
-from app.schemas.usuario import (
-    UsuarioCrear,
-    UsuarioResponse,
-    UsuarioActualizar
-)
-from app.core.security import generar_hash_password
+
 from app.core.dependencies import get_current_user
-from app.models.paciente import Paciente
-from app.models.doctor import Doctor
-from app.models.especialidad import Especialidad
+from app.core.security import generar_hash_password
 from app.core.validaciones import (
     componer_apellido,
     normalizar_correo,
     validar_nombre_persona,
 )
+from app.database.connection import get_db
+from app.models.doctor import Doctor
+from app.models.doctor_especialidad import DoctorEspecialidad
+from app.models.especialidad import Especialidad
+from app.models.paciente import Paciente
+from app.models.role import Role
+from app.models.usuario import Usuario
+from app.schemas.usuario import (
+    UsuarioActualizar,
+    UsuarioCrear,
+    UsuarioResponse,
+)
+from app.services.suscripcion_service import validar_limite_personal
 from app.services.usuario_service import (
     ROL_ADMIN,
     ROL_COORDINADOR,
     ROL_PACIENTE,
     crear_usuario_con_perfil,
 )
-
 
 router = APIRouter(
     prefix="/api/usuarios",
@@ -40,8 +40,6 @@ def obtener_usuarios(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    
-    # Solo el administrador o coordinador pueden consultar los usuarios
     if usuario_actual.rol_id_FK not in [1, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -50,11 +48,11 @@ def obtener_usuarios(
 
     usuarios = (
         db.query(Usuario)
+        .filter(Usuario.clinica_id_FK == usuario_actual.clinica_id_FK)
         .order_by(Usuario.id_PK)
         .all()
     )
 
-    # Perfil de doctor y sus especialidades en 3 consultas (sin N+1).
     nombres_especialidad = {
         e.id_PK: e.nombre for e in db.query(Especialidad).all()
     }
@@ -70,7 +68,6 @@ def obtener_usuarios(
     for doc in db.query(Doctor).all():
         lista = asignadas.get(doc.id_PK)
 
-        # Compatibilidad con doctores antiguos sin tabla intermedia.
         if not lista and doc.especialidad_id_FK:
             lista = [{
                 "id_PK": doc.especialidad_id_FK,
@@ -91,6 +88,7 @@ def obtener_usuarios(
     return [
         {
             "id_PK": usuario.id_PK,
+            "clinica_id_FK": usuario.clinica_id_FK,
             "nombre": usuario.nombre,
             "apellido_paterno": usuario.apellido_paterno,
             "apellido_materno": usuario.apellido_materno,
@@ -111,6 +109,36 @@ def obtener_usuarios(
     ]
 
 
+@router.get("/{usuario_id}")
+def obtener_usuario_por_id(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    if usuario_actual.rol_id_FK not in [1, 5]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el administrador o coordinador pueden consultar los usuarios"
+        )
+
+    usuario = (
+        db.query(Usuario)
+        .filter(
+            Usuario.id_PK == usuario_id,
+            Usuario.clinica_id_FK == usuario_actual.clinica_id_FK
+        )
+        .first()
+    )
+
+    if not usuario:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El usuario no existe"
+        )
+
+    return usuario
+
+
 @router.post(
     "/",
     response_model=UsuarioResponse,
@@ -121,13 +149,6 @@ def crear_usuario(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """
-    Creación ADMINISTRATIVA de cuentas (cualquier rol permitido).
-
-    Requiere sesión. El registro público de pacientes es otro endpoint:
-    POST /api/auth/registro.
-    """
-
     if usuario_actual.rol_id_FK not in [ROL_ADMIN, ROL_COORDINADOR]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -143,10 +164,13 @@ def crear_usuario(
             detail="El coordinador no puede crear administradores ni coordinadores"
         )
 
+    validar_limite_personal(db, usuario_actual.clinica_id_FK)
+
     return crear_usuario_con_perfil(
         db=db,
         datos=datos,
-        hash_contrasena=generar_hash_password(datos.password)
+        hash_contrasena=generar_hash_password(datos.password),
+        clinica_id=usuario_actual.clinica_id_FK
     )
 
 
@@ -157,11 +181,6 @@ def actualizar_usuario(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """
-    Permite al administrador editar datos básicos,
-    cambiar el rol cuando sea seguro y activar o desactivar cuentas.
-    """
-
     if usuario_actual.rol_id_FK not in [1, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -170,7 +189,10 @@ def actualizar_usuario(
 
     usuario = (
         db.query(Usuario)
-        .filter(Usuario.id_PK == usuario_id)
+        .filter(
+            Usuario.id_PK == usuario_id,
+            Usuario.clinica_id_FK == usuario_actual.clinica_id_FK
+        )
         .first()
     )
 
@@ -180,8 +202,6 @@ def actualizar_usuario(
             detail="El usuario no existe"
         )
 
-    # El coordinador no puede modificar cuentas de administradores ni de
-    # otros coordinadores (sí puede editar su propia cuenta).
     if (
         usuario_actual.rol_id_FK == 5
         and usuario.rol_id_FK in [1, 5]
@@ -200,7 +220,6 @@ def actualizar_usuario(
             detail="No se recibieron cambios"
         )
 
-    # Validar nombre.
     if "nombre" in cambios:
         nombre = (cambios["nombre"] or "").strip()
 
@@ -215,7 +234,6 @@ def actualizar_usuario(
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error))
 
-    # Validar apellidos (opcionales; vacío = quitar el apellido).
     for campo, etiqueta in (
         ("apellido_paterno", "El apellido paterno"),
         ("apellido_materno", "El apellido materno"),
@@ -232,7 +250,6 @@ def actualizar_usuario(
             except ValueError as error:
                 raise HTTPException(status_code=422, detail=str(error))
 
-    # Un paciente siempre necesita apellido paterno (pacientes.apellido es obligatorio).
     if (
         usuario.rol_id_FK == ROL_PACIENTE
         and "apellido_paterno" in cambios
@@ -243,7 +260,6 @@ def actualizar_usuario(
             detail="El apellido paterno es obligatorio para pacientes"
         )
 
-    # Validar que el correo no pertenezca a otra cuenta.
     if (
         "correo_electronico" in cambios
         and cambios["correo_electronico"] is not None
@@ -269,7 +285,6 @@ def actualizar_usuario(
 
         cambios["correo_electronico"] = correo
 
-    # Validar el estado.
     if "estado" in cambios:
         estado = (cambios["estado"] or "").strip().lower()
 
@@ -288,7 +303,6 @@ def actualizar_usuario(
                 detail="No puedes desactivar tu propia cuenta"
             )
 
-        # No dejar el sistema sin administradores activos.
         if usuario.rol_id_FK == 1 and estado == "inactivo":
             administradores_activos = (
                 db.query(Usuario)
@@ -310,7 +324,6 @@ def actualizar_usuario(
 
         cambios["estado"] = estado
 
-    # Validar cambios de rol.
     if "rol_id_FK" in cambios:
         nuevo_rol_id = cambios["rol_id_FK"]
 
@@ -388,13 +401,10 @@ def actualizar_usuario(
                         )
                     )
 
-    # Aplicar los cambios.
     try:
         for campo, valor in cambios.items():
             setattr(usuario, campo, valor)
 
-        # Los apellidos viven en `usuarios` y en la ficha `pacientes`:
-        # se mantienen sincronizados para no duplicar datos contradictorios.
         if (
             usuario.rol_id_FK == ROL_PACIENTE
             and ("apellido_paterno" in cambios or "apellido_materno" in cambios)
@@ -425,6 +435,7 @@ def actualizar_usuario(
 
     return {
         "id_PK": usuario.id_PK,
+        "clinica_id_FK": usuario.clinica_id_FK,
         "nombre": usuario.nombre,
         "apellido_paterno": usuario.apellido_paterno,
         "apellido_materno": usuario.apellido_materno,
