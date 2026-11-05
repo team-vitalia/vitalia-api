@@ -1,5 +1,5 @@
-from sqlalchemy import Integer, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.database.connection import Base
 
@@ -11,6 +11,12 @@ class Sala(Base):
         primary_key=True,
         autoincrement=True
     )
+
+    clinica_id_FK: Mapped[int] = mapped_column(
+        ForeignKey("clinicas.id_PK"),
+        nullable=False
+    )
+    clinica_id = synonym("clinica_id_FK")
 
     nombre: Mapped[str] = mapped_column(
         String(150),
@@ -40,3 +46,5 @@ class Sala(Base):
     lista_equipamiento: Mapped[str | None] = mapped_column(
         Text
     )
+
+    clinica = relationship("Clinica", back_populates="salas")

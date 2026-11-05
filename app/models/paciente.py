@@ -1,7 +1,7 @@
 from datetime import date
 
-from sqlalchemy import Date, ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Date, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.database.connection import Base
 
@@ -13,6 +13,12 @@ class Paciente(Base):
         primary_key=True,
         autoincrement=True
     )
+
+    clinica_id_FK: Mapped[int] = mapped_column(
+        ForeignKey("clinicas.id_PK"),
+        nullable=False
+    )
+    clinica_id = synonym("clinica_id_FK")
 
     usuario_id_FK: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios.id_PK"),
@@ -71,3 +77,4 @@ class Paciente(Base):
     )
 
     usuario = relationship("Usuario")
+    clinica = relationship("Clinica", back_populates="pacientes")
