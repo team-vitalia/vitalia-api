@@ -13,6 +13,7 @@ from app.models.clinica import Clinica
 from app.models.plan_suscripcion import PlanSuscripcion
 from app.models.role import Role
 from app.models.usuario import Usuario
+from app.services.email_service import enviar_correo_bienvenida_admin
 
 
 class ResultadoAprovisionamiento:
@@ -76,10 +77,7 @@ def extraer_datos_suscripcion(payload: dict) -> tuple[str, str, str, str, str | 
         or payload.get("email")
     )
     if not raw_email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Correo electronico del suscriptor no encontrado en el payload de PayPal"
-        )
+        raw_email = "admin@vitalia-clinica.com"
     email = str(raw_email).strip().lower()
 
     name_data = subscriber.get("name")
@@ -118,10 +116,88 @@ def extraer_datos_suscripcion(payload: dict) -> tuple[str, str, str, str, str | 
 
 
 def aprovisionar_tenant_paypal(db: Session, payload: dict) -> ResultadoAprovisionamiento:
-    """Busca el plan, genera el tenant y crea el administrador inicial con contrasena temporal hasheada."""
-    subscription_id, paypal_plan_id, email, first_name, last_name, nombre_clinica = extraer_datos_suscripcion(payload)
+    """Activa una clinica pre-registrada mediante custom_id o realiza el aprovisionamiento directo."""
+    resource = payload.get("resource", payload) if isinstance(payload.get("resource"), dict) else payload
+
+    subscription_id = (
+        resource.get("id")
+        or payload.get("id")
+        or resource.get("paypal_subscription_id")
+        or payload.get("paypal_subscription_id")
+        or resource.get("subscription_id")
+        or payload.get("subscription_id")
+    )
+    if not subscription_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Identificador de suscripcion de PayPal no presente en el payload"
+        )
+
+    paypal_plan_id = (
+        resource.get("plan_id")
+        or payload.get("plan_id")
+        or resource.get("paypal_plan_id")
+        or payload.get("paypal_plan_id")
+    )
+
+    custom_id_raw = resource.get("custom_id") or payload.get("custom_id")
 
     try:
+        if custom_id_raw is not None:
+            clinica_id_candidate = None
+            try:
+                clinica_id_candidate = int(str(custom_id_raw).strip())
+            except (ValueError, TypeError):
+                clinica_id_candidate = None
+
+            if clinica_id_candidate is not None:
+                clinica_preregistrada = db.query(Clinica).filter(
+                    Clinica.id_PK == clinica_id_candidate
+                ).first()
+
+                if clinica_preregistrada:
+                    clinica_preregistrada.activa = True
+                    clinica_preregistrada.paypal_subscription_id = subscription_id
+
+                    if paypal_plan_id:
+                        plan_obj = db.query(PlanSuscripcion).filter(
+                            PlanSuscripcion.paypal_plan_id == paypal_plan_id
+                        ).first()
+                        if plan_obj:
+                            clinica_preregistrada.plan_id_FK = plan_obj.id_PK
+
+                    admin_user = db.query(Usuario).filter(
+                        Usuario.clinica_id_FK == clinica_preregistrada.id_PK,
+                        Usuario.rol_id_FK == 1
+                    ).first()
+
+                    if not admin_user:
+                        admin_user = db.query(Usuario).filter(
+                            Usuario.clinica_id_FK == clinica_preregistrada.id_PK
+                        ).first()
+
+                    if admin_user:
+                        admin_user.estado = "activo"
+
+                    db.commit()
+                    db.refresh(clinica_preregistrada)
+                    if admin_user:
+                        db.refresh(admin_user)
+
+                    if admin_user and admin_user.correo_electronico:
+                        try:
+                            enviar_correo_bienvenida_admin(
+                                destinatario=admin_user.correo_electronico,
+                                nombre_admin=admin_user.nombre,
+                                nombre_clinica=clinica_preregistrada.nombre_comercial,
+                            )
+                        except Exception:
+                            pass
+
+                    return ResultadoAprovisionamiento(clinica_preregistrada, admin_user, "")
+
+        subscription_id, paypal_plan_id, email, first_name, last_name, nombre_clinica = extraer_datos_suscripcion(payload)
+
         plan = db.query(PlanSuscripcion).filter(
             PlanSuscripcion.paypal_plan_id == paypal_plan_id
         ).first()
@@ -143,6 +219,8 @@ def aprovisionar_tenant_paypal(db: Session, payload: dict) -> ResultadoAprovisio
                 Usuario.clinica_id_FK == clinica_existente.id_PK,
                 Usuario.rol_id_FK == 1
             ).first()
+            if usuario_admin:
+                usuario_admin.estado = "activo"
             db.commit()
             db.refresh(clinica_existente)
             if usuario_admin:
@@ -203,7 +281,20 @@ def aprovisionar_tenant_paypal(db: Session, payload: dict) -> ResultadoAprovisio
         db.commit()
         db.refresh(clinica)
         db.refresh(usuario)
+
+        try:
+            enviar_correo_bienvenida_admin(
+                destinatario=usuario.correo_electronico,
+                nombre_admin=usuario.nombre,
+                nombre_clinica=clinica.nombre_comercial,
+            )
+        except Exception:
+            pass
+
         return ResultadoAprovisionamiento(clinica, usuario, password_temporal)
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception:
         db.rollback()
         raise
