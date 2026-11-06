@@ -34,6 +34,8 @@ from app.routers.auditoria import router as auditoria_router
 from app.routers.reportes import router as reportes_router
 from app.routers.doctor_salas import router as doctor_salas_router
 
+from app.routers.webhooks import router as webhooks_router
+
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
@@ -83,6 +85,7 @@ app.include_router(doctor_salas_router)
 
 app.include_router(medicamentos_router)
 app.include_router(recetas_router)
+app.include_router(webhooks_router)
 app.add_api_route("/email-prueba", email_prueba, methods=["POST"])
 
 

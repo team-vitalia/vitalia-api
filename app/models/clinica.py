@@ -1,3 +1,5 @@
+"""Modelo Clinica actualizado con columna paypal_subscription_id para asociar la suscripcion de PayPal."""
+
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String
@@ -36,6 +38,12 @@ class Clinica(Base):
         Boolean,
         default=True,
         nullable=False
+    )
+
+    paypal_subscription_id: Mapped[str | None] = mapped_column(
+        String(100),
+        unique=True,
+        nullable=True
     )
 
     plan = relationship(

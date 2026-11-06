@@ -1,3 +1,5 @@
+"""Semillas de base de datos para planes de suscripcion y clinica demo con identificadores de planes de PayPal."""
+
 from datetime import datetime
 from typing import Sequence
 
@@ -17,6 +19,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": False,
         "limite_ia_mensual": 0,
         "limite_sucursales": 1,
+        "paypal_plan_id": "P-61L31376NX417651DNLWUKSQ",
     },
     {
         "nombre": "Clínica",
@@ -28,6 +31,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": True,
         "limite_ia_mensual": 0,
         "limite_sucursales": 1,
+        "paypal_plan_id": "P-5CC29855SK5899208NLWUMWI",
     },
     {
         "nombre": "Profesional",
@@ -39,6 +43,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": True,
         "limite_ia_mensual": 100,
         "limite_sucursales": 1,
+        "paypal_plan_id": "P-5J121652NS326140HNLWUNNI",
     },
     {
         "nombre": "Empresarial",
@@ -50,11 +55,13 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": True,
         "limite_ia_mensual": 500,
         "limite_sucursales": 1,
+        "paypal_plan_id": "P-64643939B6992035JNLWUOCY",
     },
 ]
 
 
 def sembrar_planes_y_clinica_demo(db: Session) -> tuple[list[PlanSuscripcion], Clinica]:
+    """Crea o actualiza los planes de suscripcion iniciales vinculando los IDs de PayPal y asegura la clinica demo."""
     planes: list[PlanSuscripcion] = []
     for item in PLANES_INICIALES:
         plan = db.query(PlanSuscripcion).filter(
@@ -64,6 +71,10 @@ def sembrar_planes_y_clinica_demo(db: Session) -> tuple[list[PlanSuscripcion], C
             plan = PlanSuscripcion(**item)
             db.add(plan)
             db.flush()
+        else:
+            if item.get("paypal_plan_id") and plan.paypal_plan_id != item["paypal_plan_id"]:
+                plan.paypal_plan_id = item["paypal_plan_id"]
+                db.flush()
         planes.append(plan)
 
     plan_empresarial = db.query(PlanSuscripcion).filter(
@@ -79,6 +90,7 @@ def sembrar_planes_y_clinica_demo(db: Session) -> tuple[list[PlanSuscripcion], C
             plan_id_FK=plan_empresarial.id_PK,
             fecha_registro=datetime.now(),
             activa=True,
+            paypal_subscription_id=None,
         )
         db.add(clinica_demo)
         db.flush()

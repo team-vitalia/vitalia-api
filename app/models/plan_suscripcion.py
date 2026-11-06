@@ -1,3 +1,5 @@
+"""Modelo PlanSuscripcion actualizado con columna paypal_plan_id para integracion con PayPal."""
+
 from sqlalchemy import Boolean, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -61,6 +63,12 @@ class PlanSuscripcion(Base):
         Integer,
         default=1,
         nullable=False
+    )
+
+    paypal_plan_id: Mapped[str | None] = mapped_column(
+        String(100),
+        unique=True,
+        nullable=True
     )
 
     clinicas = relationship(
