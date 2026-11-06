@@ -23,17 +23,24 @@ PLANES_PAYPAL = [
 
 
 def upgrade() -> None:
-    """Anade columnas de PayPal en planes_suscripcion y clinicas, y asocia los IDs de planes correspondientes."""
-    op.add_column(
-        "planes_suscripcion",
-        sa.Column("paypal_plan_id", sa.String(100), nullable=True, unique=True)
-    )
-    op.add_column(
-        "clinicas",
-        sa.Column("paypal_subscription_id", sa.String(100), nullable=True, unique=True)
-    )
-
+    """Anade columnas de PayPal en planes_suscripcion y clinicas de forma idempotente, y asocia los IDs de planes."""
     conn = op.get_bind()
+    inspector = sa.inspect(conn)
+
+    columnas_planes = [col["name"] for col in inspector.get_columns("planes_suscripcion")]
+    if "paypal_plan_id" not in columnas_planes:
+        op.add_column(
+            "planes_suscripcion",
+            sa.Column("paypal_plan_id", sa.String(100), nullable=True, unique=True)
+        )
+
+    columnas_clinicas = [col["name"] for col in inspector.get_columns("clinicas")]
+    if "paypal_subscription_id" not in columnas_clinicas:
+        op.add_column(
+            "clinicas",
+            sa.Column("paypal_subscription_id", sa.String(100), nullable=True, unique=True)
+        )
+
     for nombre_plan, paypal_id in PLANES_PAYPAL:
         conn.execute(
             sa.text(
@@ -45,5 +52,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Elimina las columnas de PayPal de clinicas y planes_suscripcion."""
-    op.drop_column("clinicas", "paypal_subscription_id")
-    op.drop_column("planes_suscripcion", "paypal_plan_id")
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+
+    columnas_clinicas = [col["name"] for col in inspector.get_columns("clinicas")]
+    if "paypal_subscription_id" in columnas_clinicas:
+        op.drop_column("clinicas", "paypal_subscription_id")
+
+    columnas_planes = [col["name"] for col in inspector.get_columns("planes_suscripcion")]
+    if "paypal_plan_id" in columnas_planes:
+        op.drop_column("planes_suscripcion", "paypal_plan_id")

@@ -19,6 +19,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": False,
         "limite_ia_mensual": 0,
         "limite_sucursales": 1,
+        "incluye_contratos": False,
         "paypal_plan_id": "P-61L31376NX417651DNLWUKSQ",
     },
     {
@@ -31,6 +32,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": True,
         "limite_ia_mensual": 0,
         "limite_sucursales": 1,
+        "incluye_contratos": False,
         "paypal_plan_id": "P-5CC29855SK5899208NLWUMWI",
     },
     {
@@ -43,6 +45,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": True,
         "limite_ia_mensual": 100,
         "limite_sucursales": 1,
+        "incluye_contratos": False,
         "paypal_plan_id": "P-5J121652NS326140HNLWUNNI",
     },
     {
@@ -55,6 +58,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "incluye_correos": True,
         "limite_ia_mensual": 500,
         "limite_sucursales": 1,
+        "incluye_contratos": True,
         "paypal_plan_id": "P-64643939B6992035JNLWUOCY",
     },
 ]

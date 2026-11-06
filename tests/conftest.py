@@ -99,3 +99,263 @@ def pytest_collection_modifyitems(config, items):
         motivo = motivos.get(nombre) or motivos.get(None)
         if motivo:
             item.add_marker(pytest.mark.xfail(reason=f"Prueba desactualizada: {motivo}", strict=False))
+
+
+from datetime import datetime
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.core.security import crear_access_token, generar_hash_password
+from app.database.connection import Base, get_db
+from app.main import app
+from app.models.clinica import Clinica
+from app.models.plan_suscripcion import PlanSuscripcion
+from app.models.role import Role
+from app.models.usuario import Usuario
+
+
+@pytest.fixture
+def sesion_db():
+    motor = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+
+    @event.listens_for(motor, "connect")
+    def habilitar_fk_sqlite(conexion_dbapi, registro_conexion):
+        cursor = conexion_dbapi.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    Base.metadata.create_all(motor)
+    fabrica = sessionmaker(bind=motor, autocommit=False, autoflush=False)
+    sesion = fabrica()
+
+    roles = [
+        Role(id_PK=1, nombre="Administrador", descripcion="Admin", esta_activo=True),
+        Role(id_PK=2, nombre="Doctor", descripcion="Doctor", esta_activo=True),
+        Role(id_PK=3, nombre="Paciente", descripcion="Paciente", esta_activo=True),
+        Role(id_PK=4, nombre="Recepción", descripcion="Recepcion", esta_activo=True),
+        Role(id_PK=5, nombre="Coordinador", descripcion="Coordinador", esta_activo=True),
+    ]
+    sesion.add_all(roles)
+
+    planes = [
+        PlanSuscripcion(
+            id_PK=1,
+            nombre="Básico",
+            precio_mensual=599.0,
+            precio_anual=5990.0,
+            limite_personal=3,
+            limite_pacientes=100,
+            incluye_calendar=False,
+            incluye_correos=False,
+            limite_ia_mensual=0,
+            limite_sucursales=1,
+            incluye_contratos=False,
+            paypal_plan_id="P-61L31376NX417651DNLWUKSQ",
+        ),
+        PlanSuscripcion(
+            id_PK=2,
+            nombre="Clínica",
+            precio_mensual=1199.0,
+            precio_anual=11990.0,
+            limite_personal=10,
+            limite_pacientes=500,
+            incluye_calendar=True,
+            incluye_correos=True,
+            limite_ia_mensual=0,
+            limite_sucursales=1,
+            incluye_contratos=False,
+            paypal_plan_id="P-5CC29855SK5899208NLWUMWI",
+        ),
+        PlanSuscripcion(
+            id_PK=3,
+            nombre="Profesional",
+            precio_mensual=2199.0,
+            precio_anual=21990.0,
+            limite_personal=20,
+            limite_pacientes=1500,
+            incluye_calendar=True,
+            incluye_correos=True,
+            limite_ia_mensual=100,
+            limite_sucursales=1,
+            incluye_contratos=False,
+            paypal_plan_id="P-5J121652NS326140HNLWUNNI",
+        ),
+        PlanSuscripcion(
+            id_PK=4,
+            nombre="Empresarial",
+            precio_mensual=4499.0,
+            precio_anual=44990.0,
+            limite_personal=30,
+            limite_pacientes=5000,
+            incluye_calendar=True,
+            incluye_correos=True,
+            limite_ia_mensual=500,
+            limite_sucursales=1,
+            incluye_contratos=True,
+            paypal_plan_id="P-64643939B6992035JNLWUOCY",
+        ),
+    ]
+    sesion.add_all(planes)
+    sesion.commit()
+
+    def anular_get_db():
+        try:
+            yield sesion
+        finally:
+            pass
+
+    app.dependency_overrides[get_db] = anular_get_db
+
+    try:
+        yield sesion
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+        sesion.close()
+        Base.metadata.drop_all(motor)
+
+
+@pytest.fixture
+def db_session(sesion_db):
+    return sesion_db
+
+
+@pytest.fixture
+def cliente(sesion_db):
+    return TestClient(app)
+
+
+@pytest.fixture
+def client(cliente):
+    return cliente
+
+
+@pytest.fixture
+def setup_tenants(sesion_db: Session):
+    clinica_a = Clinica(
+        id_PK=10,
+        nombre_comercial="Clínica Sanitas A",
+        plan_id_FK=1,
+        activa=True,
+        fecha_registro=datetime.now(),
+        paypal_subscription_id="I-SUB-CLINICA-A-001",
+    )
+    clinica_b = Clinica(
+        id_PK=20,
+        nombre_comercial="Clínica Médica B",
+        plan_id_FK=4,
+        activa=True,
+        fecha_registro=datetime.now(),
+        paypal_subscription_id="I-SUB-CLINICA-B-002",
+    )
+    sesion_db.add_all([clinica_a, clinica_b])
+    sesion_db.commit()
+
+    hash_pw = generar_hash_password("PasswordSegura123!")
+
+    superadmin = Usuario(
+        id_PK=1,
+        clinica_id_FK=clinica_b.id_PK,
+        nombre="Super",
+        apellido_paterno="Admin",
+        correo_electronico="superadmin.qa@vitalia.com",
+        hash_contrasena=hash_pw,
+        rol_id_FK=1,
+        estado="activo",
+    )
+    admin_a = Usuario(
+        id_PK=11,
+        clinica_id_FK=clinica_a.id_PK,
+        nombre="Admin A",
+        apellido_paterno="Sanitas",
+        correo_electronico="admin.a@sanitas.com",
+        hash_contrasena=hash_pw,
+        rol_id_FK=1,
+        estado="activo",
+    )
+    admin_b = Usuario(
+        id_PK=21,
+        clinica_id_FK=clinica_b.id_PK,
+        nombre="Admin B",
+        apellido_paterno="Medica",
+        correo_electronico="admin.b@medica.com",
+        hash_contrasena=hash_pw,
+        rol_id_FK=1,
+        estado="activo",
+    )
+    sesion_db.add_all([superadmin, admin_a, admin_b])
+    sesion_db.commit()
+
+    token_superadmin = crear_access_token(
+        data={
+            "sub": str(superadmin.id_PK),
+            "correo": superadmin.correo_electronico,
+            "rol_id": superadmin.rol_id_FK,
+            "clinica_id": superadmin.clinica_id_FK,
+        },
+        clinica_id=superadmin.clinica_id_FK,
+    )
+
+    token_admin_a = crear_access_token(
+        data={
+            "sub": str(admin_a.id_PK),
+            "correo": admin_a.correo_electronico,
+            "rol_id": admin_a.rol_id_FK,
+            "clinica_id": admin_a.clinica_id_FK,
+        },
+        clinica_id=admin_a.clinica_id_FK,
+    )
+
+    token_admin_b = crear_access_token(
+        data={
+            "sub": str(admin_b.id_PK),
+            "correo": admin_b.correo_electronico,
+            "rol_id": admin_b.rol_id_FK,
+            "clinica_id": admin_b.clinica_id_FK,
+        },
+        clinica_id=admin_b.clinica_id_FK,
+    )
+
+    return {
+        "clinica_a": clinica_a,
+        "clinica_b": clinica_b,
+        "superadmin": superadmin,
+        "admin_a": admin_a,
+        "admin_b": admin_b,
+        "token_superadmin": token_superadmin,
+        "token_admin_a": token_admin_a,
+        "token_admin_b": token_admin_b,
+        "headers_superadmin": {"Authorization": f"Bearer {token_superadmin}"},
+        "headers_admin_a": {"Authorization": f"Bearer {token_admin_a}"},
+        "headers_admin_b": {"Authorization": f"Bearer {token_admin_b}"},
+    }
+
+
+@pytest.fixture
+def headers_superadmin(setup_tenants):
+    return setup_tenants["headers_superadmin"]
+
+
+@pytest.fixture
+def headers_admin_a(setup_tenants):
+    return setup_tenants["headers_admin_a"]
+
+
+@pytest.fixture
+def headers_admin_b(setup_tenants):
+    return setup_tenants["headers_admin_b"]
+
+
+@pytest.fixture
+def clinica_a(setup_tenants):
+    return setup_tenants["clinica_a"]
+
+
+@pytest.fixture
+def clinica_b(setup_tenants):
+    return setup_tenants["clinica_b"]

@@ -59,6 +59,12 @@ class PlanSuscripcion(Base):
         nullable=False
     )
 
+    incluye_contratos: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False
+    )
+
     limite_sucursales: Mapped[int] = mapped_column(
         Integer,
         default=1,

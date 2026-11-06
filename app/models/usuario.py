@@ -84,3 +84,12 @@ class Usuario(Base):
 
     rol = relationship("Role")
     clinica = relationship("Clinica", back_populates="usuarios")
+
+    @property
+    def is_superadmin(self) -> bool:
+        if self.rol_id_FK == 1:
+            return True
+        if self.rol and self.rol.nombre:
+            nombre = self.rol.nombre.strip().lower()
+            return nombre in ["superadmin", "super admin", "administrador", "admin"]
+        return False
