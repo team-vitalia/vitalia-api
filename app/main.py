@@ -136,10 +136,29 @@ def health_database(
 def obtener_usuario_actual(
     usuario: Usuario = Depends(get_current_user),
 ):
+    clinica_data = None
+    if usuario.clinica:
+        plan = usuario.clinica.plan
+        clinica_data = {
+            "id": usuario.clinica.id_PK,
+            "nombre_comercial": usuario.clinica.nombre_comercial,
+            "activa": usuario.clinica.activa,
+            "plan_actual": {
+                "nombre_plan": plan.nombre if plan else "Básico",
+                "incluye_ia": (plan.limite_ia_mensual > 0) if plan else False,
+                "incluye_calendar": plan.incluye_calendar if plan else False,
+            } if plan else {
+                "nombre_plan": "Básico",
+                "incluye_ia": False,
+                "incluye_calendar": False,
+            }
+        }
+
     return {
         "id": usuario.id_PK,
         "nombre": usuario.nombre,
         "correo": usuario.correo_electronico,
         "rol_id": usuario.rol_id_FK,
         "estado": usuario.estado,
+        "clinica": clinica_data,
     }
