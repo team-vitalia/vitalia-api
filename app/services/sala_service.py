@@ -18,9 +18,9 @@ class SalaService:
     def __init__(self, db: Session):
         self.db = db
 
-    # ---------- Consultas ----------
     def listar(
         self,
+        clinica_id: int | None = None,
         estado: str | None = None,
         piso: str | None = None,
         tipo: str | None = None,
@@ -28,6 +28,8 @@ class SalaService:
         page_size: int = 20,
     ):
         stmt = select(Sala)
+        if clinica_id is not None:
+            stmt = stmt.where(Sala.clinica_id_FK == clinica_id)
         if estado:
             stmt = stmt.where(Sala.estado == estado)
         if piso:
@@ -48,7 +50,6 @@ class SalaService:
     def obtener(self, sala_id: int) -> Sala | None:
         return self.db.get(Sala, sala_id)
 
-    # ---------- CRUD ----------
     def crear(
         self,
         payload: SalaCreate,
@@ -57,7 +58,7 @@ class SalaService:
     ) -> Sala:
         sala = Sala(**payload.model_dump())
         self.db.add(sala)
-        self.db.flush()  # obtiene id_PK
+        self.db.flush()
 
         registrar_auditoria(
             db=self.db,
@@ -161,12 +162,9 @@ class SalaService:
         )
         nombre = sala.nombre
 
-        # El equipamiento depende de la sala (FK): se elimina primero.
-        equipos_eliminados = (
-            self.db.query(EquipamientoSala)
-            .filter(EquipamientoSala.sala_id_FK == sala_id)
-            .delete(synchronize_session=False)
-        )
+        self.db.query(EquipamientoSala).filter(
+            EquipamientoSala.sala_id_FK == sala_id
+        ).delete(synchronize_session=False)
 
         self.db.delete(sala)
 
@@ -179,16 +177,12 @@ class SalaService:
             antiguos=antes,
             nuevos=None,
             ip=ip_desde_request(request),
-            descripcion=(
-                f"Eliminación de sala {nombre}"
-                f" ({equipos_eliminados} equipos eliminados)"
-            ),
+            descripcion=f"Eliminación de sala {nombre}",
         )
 
         self.db.commit()
         return True
 
-    # ---------- Equipamiento anidado ----------
     def listar_equipos(self, sala_id: int) -> list[EquipamientoSala]:
         return self.db.scalars(
             select(EquipamientoSala).where(

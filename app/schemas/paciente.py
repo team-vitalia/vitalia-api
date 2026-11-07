@@ -17,6 +17,7 @@ class PacienteCrear(BaseModel):
     direccion: str | None = None
     correo_electronico: EmailStr | None = None
 
+
     @field_validator("apellido_paterno", "apellido_materno")
     @classmethod
     def _validar_apellidos(cls, v: str | None) -> str | None:
@@ -32,6 +33,7 @@ class PacienteCrear(BaseModel):
 
 class PacienteResponse(BaseModel):
     id_PK: int
+    clinica_id_FK: int | None = None
     nombre: str
     apellido: str
     apellido_paterno: str | None = None

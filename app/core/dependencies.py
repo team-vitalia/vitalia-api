@@ -1,14 +1,14 @@
+from typing import Callable
+
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.database.connection import get_db
-from app.models.usuario import Usuario
 from app.models.role import Role
-from typing import Callable
-
+from app.models.usuario import Usuario
 
 security = HTTPBearer()
 
@@ -17,7 +17,6 @@ def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db)
 ) -> Usuario:
-
     token = credentials.credentials
 
     credentials_exception = HTTPException(
@@ -36,6 +35,7 @@ def get_current_user(
         )
 
         usuario_id = payload.get("sub")
+        clinica_id = payload.get("clinica_id")
 
         if usuario_id is None:
             raise credentials_exception
@@ -60,11 +60,13 @@ def get_current_user(
             detail="El usuario está inactivo"
         )
 
+    if clinica_id is not None:
+        usuario.clinica_id_FK = int(clinica_id)
+
     return usuario
 
 
 def require_roles(allowed_roles: list[str]) -> Callable:
-    """Dependencia que exige que el usuario tenga uno de los roles indicados (por nombre)."""
     allowed_lower = {r.lower() for r in allowed_roles}
 
     def _checker(

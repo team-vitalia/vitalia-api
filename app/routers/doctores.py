@@ -169,16 +169,19 @@ def obtener_doctores(
             detail="No tienes permiso para consultar la lista de médicos"
         )
 
-    doctores = (
+    query = (
         db.query(Doctor)
+        .join(Doctor.usuario)
         .options(
             joinedload(Doctor.usuario),
             joinedload(Doctor.especialidad)
         )
         .filter(Doctor.estado == "activo")
-        .order_by(Doctor.id_PK)
-        .all()
     )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        query = query.filter(Usuario.clinica_id_FK == clinica_id)
+    doctores = query.order_by(Doctor.id_PK).all()
 
     return [serializar_doctor(db, doctor) for doctor in doctores]
 
@@ -192,6 +195,7 @@ def obtener_mi_perfil(
 
     doctor = (
         db.query(Doctor)
+        .join(Doctor.usuario)
         .options(
             joinedload(Doctor.usuario),
             joinedload(Doctor.especialidad)
@@ -363,6 +367,7 @@ def actualizar_doctor_admin(
 
     doctor = (
         db.query(Doctor)
+        .join(Doctor.usuario)
         .options(
             joinedload(Doctor.usuario),
             joinedload(Doctor.especialidad)
@@ -518,6 +523,7 @@ def listar_doctores_para_transferir(
     
     doctores = (
         db.query(Doctor)
+        .join(Doctor.usuario)
         .options(joinedload(Doctor.usuario), joinedload(Doctor.especialidad))
         .filter(Doctor.estado == "activo")
         .all()

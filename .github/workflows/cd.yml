@@ -1,33 +1,64 @@
-name: CD Backend (Despliegue Continuo - Comentado)
+name: CD Backend (Render)
 
+# Render despliega la API desde GitHub (autodeploy). Este workflow se ejecuta
+# solo cuando el CI termina en verde sobre main, dispara el despliegue si hay
+# un Deploy Hook configurado y verifica que la API publicada responda.
 on:
-  push:
-    branches: [ "main", "master" ]
+  workflow_run:
+    workflows: ["CI Backend (FastAPI + MySQL)"]
+    types: [completed]
+    branches: [main, master]
+  workflow_dispatch:
 
-# TODO EL JOB ESTÁ COMENTADO PARA EVITAR ERRORES HASTA CONFIGURAR EL SERVIDOR
+permissions:
+  contents: read
+
+env:
+  API_URL: https://vitalia-api-ve7c.onrender.com
+
 jobs:
-  # deploy-backend:
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout del código
-  #       uses: actions/checkout@v4
-
-  #     - name: Desplegar en servidor remoto vía SSH
-  #       uses: appleboy/ssh-action@v1.0.0
-  #       with:
-  #         host: ${{ secrets.SERVER_HOST }}
-  #         username: ${{ secrets.SERVER_USER }}
-  #         key: ${{ secrets.SSH_PRIVATE_KEY }}
-  #         port: 22
-  #         script: |
-  #           cd /ruta/a/tu/backend
-  #           git pull origin main
-  #           source venv/bin/activate
-  #           pip install -r requirements.txt
-  #           alembic upgrade head
-  #           sudo systemctl restart fastapi # Cambia por tu comando para reiniciar el servicio
-  placeholder-job:
+  deploy-and-verify:
+    name: Desplegar y verificar API en Render
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
     steps:
-      - name: CD Desactivado
-        run: echo "El flujo de CD del Backend está comentado. Actívalo cuando tengas tu servidor listos."
+      - name: Disparar despliegue en Render (opcional)
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
+            curl -fsS -X POST "$RENDER_DEPLOY_HOOK_URL"
+            echo "Deploy hook enviado a Render."
+          else
+            echo "Sin RENDER_DEPLOY_HOOK_URL: se usa el autodeploy de Render."
+          fi
+
+      - name: Esperar y verificar /health
+        run: |
+          # Render (plan gratuito) puede tardar en despertar o terminar el deploy
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$API_URL/health" || echo 000)
+            echo "Intento $i: HTTP $code"
+            if [ "$code" = "200" ] && grep -q '"ok"' /tmp/health.json; then
+              echo "API OK"; exit 0
+            fi
+            sleep 15
+          done
+          echo "La API no respondió a tiempo"; exit 1
+
+      - name: Verificar conexión a la base de datos
+        run: |
+          curl -fsS --max-time 60 "$API_URL/health/database" | tee /tmp/db.json
+          grep -q 'conectada' /tmp/db.json
+
+      - name: Resumen
+        if: always()
+        run: |
+          {
+            echo "### Verificación del despliegue de la API"
+            echo "- URL: $API_URL"
+            echo "- Commit: ${{ github.event.workflow_run.head_sha || github.sha }}"
+            echo "- Resultado: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

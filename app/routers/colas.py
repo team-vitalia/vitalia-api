@@ -44,6 +44,12 @@ def registrar_llegada(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="La cita no existe"
         )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None and cita.clinica_id_FK != clinica_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso sobre esta cita"
+        )
 
     # 3. Verificar que la cita no tenga ya una cola registrada hoy
     hoy = datetime.now().date()
@@ -119,14 +125,15 @@ def listar_colas(
 
     hoy = datetime.now().date()
 
-    colas = (
+    query = (
         db.query(Cola)
-        .filter(
-            func.date(Cola.hora_registro) == hoy
-        )
-        .order_by(Cola.id_PK)
-        .all()
+        .join(Cita, Cola.cita_id_FK == Cita.id_PK)
+        .filter(func.date(Cola.hora_registro) == hoy)
     )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        query = query.filter(Cita.clinica_id_FK == clinica_id)
+    colas = query.order_by(Cola.id_PK).all()
 
     return colas
 

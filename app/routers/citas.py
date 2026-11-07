@@ -256,8 +256,13 @@ def obtener_citas(
 ):
     verificar_permiso_recepcion(usuario_actual)
 
+    query = db.query(Cita)
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        query = query.filter(Cita.clinica_id_FK == clinica_id)
+
     citas = (
-        db.query(Cita)
+        query
         .order_by(Cita.fecha, Cita.hora_inicio)
         .all()
     )
@@ -291,6 +296,9 @@ def obtener_detalle_cita(
             detail="No tienes permiso para ver esta cita"
         )
 
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None and cita.clinica_id_FK != clinica_id:
+        raise HTTPException(status_code=403, detail="No tienes permiso sobre esta cita")
     paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
     
     alergias_db = []
@@ -395,9 +403,17 @@ async def crear_cita(
             motivo=datos.motivo
         )
 
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        if paciente.clinica_id_FK != clinica_id:
+            raise HTTPException(status_code=403, detail="El paciente pertenece a otra clínica")
+        if doctor.usuario and getattr(doctor.usuario, "clinica_id_FK", None) != clinica_id:
+            raise HTTPException(status_code=403, detail="El doctor pertenece a otra clínica")
+
     nueva_cita = Cita(
         paciente_id_FK=datos.paciente_id_FK,
         doctor_id_FK=datos.doctor_id_FK,
+        clinica_id_FK=getattr(usuario_actual, "clinica_id_FK", None),
         fecha=datos.fecha,
         hora_inicio=datos.hora_inicio,
         hora_fin=datos.hora_fin,
@@ -557,6 +573,9 @@ async def reprogramar_cita(
             detail="La cita no existe"
         )
 
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None and cita.clinica_id_FK != clinica_id:
+        raise HTTPException(status_code=403, detail="No tienes permiso sobre esta cita")
     paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
     doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
 
@@ -696,6 +715,9 @@ async def eliminar_cita(
             detail="La cita no existe"
         )
 
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None and cita.clinica_id_FK != clinica_id:
+        raise HTTPException(status_code=403, detail="No tienes permiso sobre esta cita")
     paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
     doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
 

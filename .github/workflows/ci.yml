@@ -2,28 +2,46 @@ name: CI Backend (FastAPI + MySQL)
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   backend-tests:
+    name: Migraciones + pruebas (pytest)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
-    # Contenedor de MySQL local para las pruebas
     services:
       mysql:
         image: mysql:8.0
         env:
-          MYSQL_ALLOW_EMPTY_PASSWORD: "yes" # Configura root sin contraseña
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
           MYSQL_DATABASE: vitalia
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping"
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
           --health-interval=10s
           --health-timeout=5s
-          --health-retries=5
+          --health-retries=10
+
+    # La app (connection.py) y alembic (env.py) leen DB_USER, DB_PASSWORD,
+    # DB_HOST, DB_PORT y DB_NAME. DATABASE_URL NO se usa en el código.
+    env:
+      DB_USER: root
+      DB_PASSWORD: ""
+      DB_HOST: 127.0.0.1
+      DB_PORT: "3306"
+      DB_NAME: vitalia
+      SECRET_KEY: clave-secreta-solo-para-pruebas
 
     steps:
       - name: Checkout del código
@@ -32,19 +50,77 @@ jobs:
       - name: Configurar Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: "3.11"
+          cache: pip
 
       - name: Instalar dependencias
         run: |
           python -m pip install --upgrade pip
+          # requirements.txt tiene BOM (UTF-8) por Windows; se limpia igual que en el Dockerfile
+          sed -i '1s/^\xEF\xBB\xBF//' requirements.txt
           pip install -r requirements.txt
 
-      - name: Ejecutar migraciones y pruebas (pytest)
+      - name: Aplicar migraciones (alembic)
+        run: alembic upgrade head
+
+      - name: Ejecutar pruebas (pytest)
+        run: pytest tests -v -rfExs
+
+  docker-build:
+    name: Imagen Docker + smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: backend-tests
+
+    services:
+      mysql:
+        image: mysql:8.0
         env:
-          # Cadena de conexión sin contraseña para el usuario root
-          DATABASE_URL: "mysql+pymysql://root@127.0.0.1:3306/vitalia"
-          SECRET_KEY: "tu_clave_secreta_de_pruebas"
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: vitalia
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Construir imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: vitalia-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Levantar contenedor (el entrypoint corre las migraciones)
         run: |
-          alembic upgrade head
-          pytest
+          docker run -d --name vitalia-api --network host \
+            -e DB_USER=root -e DB_PASSWORD= -e DB_HOST=127.0.0.1 \
+            -e DB_PORT=3306 -e DB_NAME=vitalia \
+            -e SECRET_KEY=clave-secreta-solo-para-pruebas \
+            vitalia-api:ci
+
+      - name: Smoke test (/health y /health/database)
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health; then break; fi
+            sleep 2
+          done
+          curl -fsS http://localhost:8000/health | grep -q '"ok"'
+          curl -fsS http://localhost:8000/health/database | grep -q 'conectada'
+          # Swagger: el esquema OpenAPI debe generarse sin errores
+          curl -fsS http://localhost:8000/openapi.json | grep -q '"openapi"'
+
+      - name: Logs del contenedor si algo falla
+        if: failure()
+        run: docker logs vitalia-api

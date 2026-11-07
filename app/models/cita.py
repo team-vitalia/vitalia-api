@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 
-from sqlalchemy import Boolean, Date, ForeignKey, String, Text, Time
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, Text, Time
+from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.database.connection import Base
 
@@ -13,6 +13,12 @@ class Cita(Base):
         primary_key=True,
         autoincrement=True
     )
+
+    clinica_id_FK: Mapped[int] = mapped_column(
+        ForeignKey("clinicas.id_PK"),
+        nullable=False
+    )
+    clinica_id = synonym("clinica_id_FK")
 
     paciente_id_FK: Mapped[int | None] = mapped_column(
         ForeignKey("pacientes.id_PK")
@@ -67,6 +73,7 @@ class Cita(Base):
     usuario_creador = relationship("Usuario")
     sala = relationship("Sala")
     equipo = relationship("EquipamientoSala")
+    clinica = relationship("Clinica", back_populates="citas")
 
     @property
     def sala_nombre(self) -> str | None:
@@ -78,8 +85,6 @@ class Cita(Base):
 
     @property
     def no_realizada(self) -> bool:
-        """True si la cita no se llevó a cabo: marcada como no asistió/cancelada
-        o con fecha vencida sin haberse completado."""
         estado = (self.estado or "").lower()
         if estado in ("no_asistio", "cancelada"):
             return True

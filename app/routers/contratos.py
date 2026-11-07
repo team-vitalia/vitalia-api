@@ -6,6 +6,7 @@ from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
 from app.models.doctor import Doctor
 from app.models.contrato_doctor import ContratoDoctor
+from app.models.clinica import Clinica
 from app.schemas.contrato_doctor import (
     ContratoCrear,
     ContratoActualizar,
@@ -16,6 +17,18 @@ router = APIRouter(
     prefix="/api/contratos",
     tags=["Contratos"],
 )
+
+
+def validar_permiso_plan_contratos(db: Session, usuario: Usuario) -> None:
+    if usuario.clinica_id_FK:
+        clinica = db.query(Clinica).filter(Clinica.id_PK == usuario.clinica_id_FK).first()
+        plan = clinica.plan if clinica else None
+        if not plan or not getattr(plan, "incluye_contratos", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Su plan no incluye el módulo de Gestión de Contratos. Requiere plan Empresarial."
+            )
+
 
 
 def exigir_administrador(usuario: Usuario):
@@ -72,7 +85,6 @@ def validar_vigencia(fecha_inicio, fecha_fin):
         )
 
 
-# CONSULTAR CONTRATOS
 @router.get(
     "/",
     response_model=list[ContratoResponse],
@@ -81,6 +93,7 @@ def listar_contratos(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
+    validar_permiso_plan_contratos(db, usuario_actual)
     if usuario_actual.rol_id_FK in [1, 5]:
         return (
             db.query(ContratoDoctor)
@@ -104,7 +117,6 @@ def listar_contratos(
     )
     
 
-# CONSULTAR MI CONTRATO (MÉDICO)
 @router.get(
     "/mi-contrato",
     response_model=list[ContratoResponse],
@@ -113,14 +125,12 @@ def consultar_mi_contrato(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    # Solo los médicos pueden consultar esta ruta.
     if usuario_actual.rol_id_FK != 2:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Solo los médicos pueden consultar sus contratos",
         )
     
-    # Obtener el perfil del médico autenticado.
     doctor = obtener_doctor_usuario(db, usuario_actual)
 
     print("Usuario autenticado:", usuario_actual.id_PK)
@@ -128,7 +138,6 @@ def consultar_mi_contrato(
     print("Perfil del médico:", doctor.id_PK)
     print("Usuario asociado al médico:", doctor.usuario_id_FK)
 
-    # Consultar todos los contratos para diagnóstico.
     todos = (
         db.query(ContratoDoctor)
         .order_by(ContratoDoctor.id_PK.desc())
@@ -147,7 +156,6 @@ def consultar_mi_contrato(
         ],
     )
 
-    # Consultar los contratos del médico autenticado.
     contratos = (
         db.query(ContratoDoctor)
         .filter(
@@ -171,7 +179,6 @@ def consultar_mi_contrato(
     return contratos
 
 
-# CONSULTAR UN CONTRATO
 @router.get(
     "/{contrato_id}",
     response_model=ContratoResponse,
@@ -202,7 +209,6 @@ def consultar_contrato(
         detail="No tienes permiso para consultar este contrato",
     )
     
-# REGISTRAR CONTRATO
 @router.post(
     "/",
     response_model=ContratoResponse,
@@ -213,6 +219,7 @@ def crear_contrato(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
+    validar_permiso_plan_contratos(db, usuario_actual)
     exigir_administrador(usuario_actual)
 
     doctor = (
@@ -253,7 +260,6 @@ def crear_contrato(
         )
         
 
-# ACTUALIZAR CONTRATO
 @router.put(
     "/{contrato_id}",
     response_model=ContratoResponse,
@@ -264,13 +270,10 @@ def actualizar_contrato(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    # Solo el administrador puede actualizar contratos.
     exigir_administrador(usuario_actual)
 
-    # Buscar el contrato que se desea modificar.
     contrato = obtener_contrato_o_error(db, contrato_id)
 
-    # Obtener únicamente los campos enviados en la solicitud.
     cambios = datos.model_dump(
         exclude_unset=True,
         exclude={"url_documento"},
@@ -282,7 +285,6 @@ def actualizar_contrato(
             detail="Debes proporcionar al menos un campo para actualizar",
         )
 
-    # Validar las fechas nuevas junto con las que ya existen.
     fecha_inicio = cambios.get(
         "fecha_inicio",
         contrato.fecha_inicio,
@@ -295,7 +297,6 @@ def actualizar_contrato(
 
     validar_vigencia(fecha_inicio, fecha_fin)
 
-    # Validar el médico solamente si se envió ese campo.
     if "doctor_id_FK" in cambios:
         doctor_id = cambios["doctor_id_FK"]
 
@@ -311,14 +312,12 @@ def actualizar_contrato(
                 detail="El médico seleccionado no existe",
             )
 
-    # Aplicar TODOS los cambios antes de guardar.
     for campo, valor in cambios.items():
         if campo in ("estado", "tipo_contrato") and valor is not None:
             valor = valor.strip()
 
         setattr(contrato, campo, valor)
 
-    # Guardar una sola vez después de modificar todos los campos.
     try:
         db.commit()
         db.refresh(contrato)

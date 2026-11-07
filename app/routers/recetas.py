@@ -34,6 +34,11 @@ def crear_receta(
                 status_code=404, 
                 detail=f"El medicamento con ID {item.medicamento_id_FK} no existe"
             )
+        if usuario_actual.clinica_id_FK is not None and med.clinica_id_FK != usuario_actual.clinica_id_FK:
+            raise HTTPException(
+                status_code=403,
+                detail=f"El medicamento {med.nombre} no pertenece a tu clínica"
+            )
 
     try:
         # 3. Crear la cabecera de la receta

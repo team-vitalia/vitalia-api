@@ -242,3 +242,34 @@ async def notificar_correo_recordatorio(destinatario: str, paciente_nombre: str,
     html = generar_html_recordatorio_cita(paciente_nombre, doctor_nombre, fecha, hora, intervalo_texto, motivo)
     texto = f"Recordatorio de cita médica para {paciente_nombre} con Dr./Dra. {doctor_nombre} el {fecha} a las {hora}. Falta {intervalo_texto}."
     await enviar_correo(destinatario, asunto, html, texto)
+
+
+def generar_html_bienvenida_admin(nombre_admin: str, nombre_clinica: str, url_pwa: str) -> str:
+    filas = [
+        ("Clínica", nombre_clinica),
+        ("Administrador", nombre_admin),
+        ("Acceso a la Plataforma", url_pwa),
+        ("Estado", "Activo y Verificado"),
+    ]
+    return construir_plantilla_base(
+        titulo="Bienvenido a VITALIA SaaS",
+        subtitulo_badge="Suscripción Activada",
+        color_badge_bg="rgb(220, 252, 231)",
+        color_badge_txt="rgb(22, 101, 52)",
+        filas_detalle=filas,
+        mensaje_adicional=f"Estimado(a) {nombre_admin}, tu suscripción ha sido confirmada y la clínica {nombre_clinica} se encuentra lista para operar en VITALIA. Puedes ingresar a la plataforma médica a través del enlace de la PWA:"
+    )
+
+
+def enviar_correo_bienvenida_admin(
+    destinatario: str,
+    nombre_admin: str,
+    nombre_clinica: str,
+    url_pwa: str = "http://localhost:8081"
+) -> bool:
+    if not destinatario:
+        return False
+    asunto = f"Bienvenido a VITALIA - Clínica {nombre_clinica} Activada"
+    html = generar_html_bienvenida_admin(nombre_admin, nombre_clinica, url_pwa)
+    texto = f"Bienvenido a VITALIA. La clínica {nombre_clinica} ha sido activada con éxito. Accede a tu PWA en {url_pwa}."
+    return enviar_correo_sincrono(destinatario, asunto, html, texto)

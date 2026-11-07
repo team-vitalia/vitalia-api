@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -22,6 +23,7 @@ from app.routers.websocket import router as websocket_router, email_prueba
 from app.routers.contratos import router as contratos_router
 from app.routers.calendar import router as calendar_router
 from app.routers.colas import router as colas_router
+from app.routers.asistente_ia import router as asistente_ia_router
 
 from app.routers.almacen import router as almacen_router
 from app.routers.notificaciones import router as notificaciones_router
@@ -33,22 +35,41 @@ from app.routers.auditoria import router as auditoria_router
 from app.routers.reportes import router as reportes_router
 from app.routers.doctor_salas import router as doctor_salas_router
 
+from app.routers.webhooks import router as webhooks_router
+from app.routers.suscripciones import router as suscripciones_router
+from app.routers.superadmin import router as superadmin_router
+
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
     version="1.0.0",
 )
 
-# Configuración de CORS habilitada para Expo y navegadores web
+# Configuración de CORS habilitada para desarrollo y producción
+origenes_cors = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "http://localhost:19006",
+    "http://127.0.0.1:19006",
+    "https://landing-ten-sigma-42.vercel.app",
+    "https://vitalia-app-fowe.vercel.app",
+]
+
+cors_env = os.getenv("CORS_ORIGINS", "")
+if cors_env:
+    for o in cors_env.split(","):
+        clean_o = o.strip().rstrip("/")
+        if clean_o and clean_o not in origenes_cors:
+            origenes_cors.append(clean_o)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-        "http://localhost:19006",
-        "http://127.0.0.1:19006",
-        "*",  # Permite peticiones durante desarrollo
-    ],
+    allow_origins=origenes_cors,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -67,6 +88,7 @@ app.include_router(websocket_router)
 app.include_router(contratos_router)
 app.include_router(calendar_router)
 app.include_router(colas_router)
+app.include_router(asistente_ia_router)
 
 # Registro de rutas del Módulo A3 (Almacén e Inventarios)
 app.include_router(almacen_router)
@@ -81,6 +103,9 @@ app.include_router(doctor_salas_router)
 
 app.include_router(medicamentos_router)
 app.include_router(recetas_router)
+app.include_router(webhooks_router)
+app.include_router(suscripciones_router)
+app.include_router(superadmin_router)
 app.add_api_route("/email-prueba", email_prueba, methods=["POST"])
 
 
@@ -129,10 +154,39 @@ def health_database(
 def obtener_usuario_actual(
     usuario: Usuario = Depends(get_current_user),
 ):
+    clinica_data = None
+    if usuario.clinica:
+        plan = usuario.clinica.plan
+        clinica_data = {
+            "id": usuario.clinica.id_PK,
+            "nombre_comercial": usuario.clinica.nombre_comercial,
+            "activa": usuario.clinica.activa,
+            "plan_actual": {
+                "nombre_plan": plan.nombre if plan else "Básico",
+                "incluye_ia": (plan.limite_ia_mensual > 0) if plan else False,
+                "incluye_calendar": plan.incluye_calendar if plan else False,
+                "incluye_contratos": plan.incluye_contratos if plan else False,
+                "limite_personal": plan.limite_personal if plan else 3,
+                "limite_pacientes": plan.limite_pacientes if plan else 100,
+                "limite_ia_mensual": plan.limite_ia_mensual if plan else 0,
+                "precio_mensual": plan.precio_mensual if plan else 599.0,
+            } if plan else {
+                "nombre_plan": "Básico",
+                "incluye_ia": False,
+                "incluye_calendar": False,
+                "incluye_contratos": False,
+                "limite_personal": 3,
+                "limite_pacientes": 100,
+                "limite_ia_mensual": 0,
+                "precio_mensual": 599.0,
+            }
+        }
+
     return {
         "id": usuario.id_PK,
         "nombre": usuario.nombre,
         "correo": usuario.correo_electronico,
         "rol_id": usuario.rol_id_FK,
         "estado": usuario.estado,
+        "clinica": clinica_data,
     }

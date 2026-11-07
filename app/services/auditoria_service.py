@@ -4,6 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.registro_auditoria import RegistroAuditoria
+from app.models.usuario import Usuario
 
 
 class AuditoriaService:
@@ -12,6 +13,7 @@ class AuditoriaService:
 
     def listar(
         self,
+        clinica_id: int | None = None,
         usuario_id: int | None = None,
         nombre_tabla: str | None = None,
         accion: str | None = None,
@@ -22,6 +24,10 @@ class AuditoriaService:
     ):
         stmt = select(RegistroAuditoria)
 
+        if clinica_id is not None:
+            stmt = stmt.join(Usuario, RegistroAuditoria.usuario_id_FK == Usuario.id_PK).where(
+                Usuario.clinica_id_FK == clinica_id
+            )
         if usuario_id:
             stmt = stmt.where(RegistroAuditoria.usuario_id_FK == usuario_id)
         if nombre_tabla:

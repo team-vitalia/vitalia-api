@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/salas", tags=["Salas"])
 @router.get("", response_model=PageResponse[SalaOut])
 def listar_salas(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current: Usuario = Depends(get_current_user),
     estado: Optional[str] = Query(None),
     piso: Optional[str] = Query(None),
     tipo: Optional[str] = Query(None),
@@ -25,6 +25,7 @@ def listar_salas(
     page_size: int = Query(20, ge=1, le=100),
 ):
     items, total = SalaService(db).listar(
+        clinica_id=getattr(current, "clinica_id_FK", None),
         estado=estado, piso=piso, tipo=tipo, page=page, page_size=page_size
     )
     pages = (total + page_size - 1) // page_size
@@ -38,7 +39,7 @@ def listar_salas(
 def obtener_sala(
     sala_id: int,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current: Usuario = Depends(get_current_user),
 ):
     sala = SalaService(db).obtener(sala_id)
     if not sala:
@@ -104,7 +105,7 @@ def eliminar_sala(
 def listar_equipamiento(
     sala_id: int,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(get_current_user),
+    current: Usuario = Depends(get_current_user),
 ):
     return [
         EquipamientoOut.model_validate(e)

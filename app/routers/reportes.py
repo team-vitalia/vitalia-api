@@ -18,50 +18,50 @@ ROLES_REPORTES = ["Administrador", "Coordinador"]
 @router.get("/ocupacion-salas")
 def ocupacion_salas(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(ROLES_REPORTES)),
+    current: Usuario = Depends(require_roles(ROLES_REPORTES)),
     desde: Optional[date] = Query(None),
     hasta: Optional[date] = Query(None),
 ):
-    return ReporteService(db).ocupacion_salas(desde, hasta)
+    return ReporteService(db, clinica_id=getattr(current, "clinica_id_FK", None)).ocupacion_salas(desde, hasta)
 
 
 @router.get("/citas-por-doctor")
 def citas_por_doctor(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(ROLES_REPORTES)),
+    current: Usuario = Depends(require_roles(ROLES_REPORTES)),
     desde: Optional[date] = Query(None),
     hasta: Optional[date] = Query(None),
 ):
-    return ReporteService(db).citas_por_doctor(desde, hasta)
+    return ReporteService(db, clinica_id=getattr(current, "clinica_id_FK", None)).citas_por_doctor(desde, hasta)
 
 
 @router.get("/tiempos-espera")
 def tiempos_espera(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(ROLES_REPORTES)),
+    current: Usuario = Depends(require_roles(ROLES_REPORTES)),
     desde: Optional[date] = Query(None),
     hasta: Optional[date] = Query(None),
 ):
-    return ReporteService(db).tiempos_espera(desde, hasta)
+    return ReporteService(db, clinica_id=getattr(current, "clinica_id_FK", None)).tiempos_espera(desde, hasta)
 
 
 @router.get("/inventario-bajo")
 def inventario_bajo(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(ROLES_REPORTES)),
+    current: Usuario = Depends(require_roles(ROLES_REPORTES)),
     umbral: int = Query(10, ge=0),
 ):
-    return ReporteService(db).inventario_bajo(umbral)
+    return ReporteService(db, clinica_id=getattr(current, "clinica_id_FK", None)).inventario_bajo(umbral)
 
 
 @router.get("/recetas")
 def recetas(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(ROLES_REPORTES)),
+    current: Usuario = Depends(require_roles(ROLES_REPORTES)),
     desde: Optional[date] = Query(None),
     hasta: Optional[date] = Query(None),
 ):
-    return ReporteService(db).recetas(desde, hasta)
+    return ReporteService(db, clinica_id=getattr(current, "clinica_id_FK", None)).recetas(desde, hasta)
 
 
 MIME = {
@@ -75,13 +75,13 @@ def exportar_reporte(
     tipo: str,
     formato: str = Query("pdf", pattern="^(pdf|excel)$"),
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(ROLES_REPORTES)),
+    current: Usuario = Depends(require_roles(ROLES_REPORTES)),
     desde: Optional[date] = Query(None),
     hasta: Optional[date] = Query(None),
     umbral: int = Query(10, ge=0),
 ):
     """Descarga un reporte en PDF o Excel, ambos con gráfico."""
-    servicio = ReporteService(db)
+    servicio = ReporteService(db, clinica_id=getattr(current, "clinica_id_FK", None))
     if tipo == "ocupacion":
         data = servicio.ocupacion_salas(desde, hasta)
     elif tipo == "citas":

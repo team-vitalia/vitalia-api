@@ -30,10 +30,15 @@ def generar_hash_password(
 
 def crear_access_token(
     data: dict,
-    expires_delta: timedelta | None = None
+    expires_delta: timedelta | None = None,
+    clinica_id: int | None = None
 ) -> str:
-
     to_encode = data.copy()
+
+    if clinica_id is not None:
+        to_encode["clinica_id"] = clinica_id
+    elif "clinica_id" not in to_encode and "clinica_id_FK" in to_encode:
+        to_encode["clinica_id"] = to_encode["clinica_id_FK"]
 
     if expires_delta:
         expire = (
