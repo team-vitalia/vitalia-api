@@ -6,6 +6,12 @@ from datetime import date
 
 from app.database.connection import get_db
 from app.routers.almacen import router
+from app.core.dependencies import get_current_user
+
+mock_user = MagicMock()
+mock_user.id_PK = 1
+mock_user.clinica_id_FK = None
+mock_user.rol_id_FK = 1
 
 app = FastAPI()
 app.include_router(router)
@@ -16,6 +22,7 @@ def override_get_db():
     yield mock_session
 
 app.dependency_overrides[get_db] = override_get_db
+app.dependency_overrides[get_current_user] = lambda: mock_user
 client = TestClient(app)
 
 

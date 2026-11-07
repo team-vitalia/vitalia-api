@@ -46,12 +46,11 @@ def obtener_usuarios(
             detail="Solo el administrador o coordinador pueden consultar los usuarios"
         )
 
-    usuarios = (
-        db.query(Usuario)
-        .filter(Usuario.clinica_id_FK == usuario_actual.clinica_id_FK)
-        .order_by(Usuario.id_PK)
-        .all()
-    )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    query_u = db.query(Usuario)
+    if clinica_id is not None:
+        query_u = query_u.filter(Usuario.clinica_id_FK == clinica_id)
+    usuarios = query_u.order_by(Usuario.id_PK).all()
 
     nombres_especialidad = {
         e.id_PK: e.nombre for e in db.query(Especialidad).all()
@@ -121,14 +120,11 @@ def obtener_usuario_por_id(
             detail="Solo el administrador o coordinador pueden consultar los usuarios"
         )
 
-    usuario = (
-        db.query(Usuario)
-        .filter(
-            Usuario.id_PK == usuario_id,
-            Usuario.clinica_id_FK == usuario_actual.clinica_id_FK
-        )
-        .first()
-    )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    query_u = db.query(Usuario).filter(Usuario.id_PK == usuario_id)
+    if clinica_id is not None:
+        query_u = query_u.filter(Usuario.clinica_id_FK == clinica_id)
+    usuario = query_u.first()
 
     if not usuario:
         raise HTTPException(
@@ -164,13 +160,15 @@ def crear_usuario(
             detail="El coordinador no puede crear administradores ni coordinadores"
         )
 
-    validar_limite_personal(db, usuario_actual.clinica_id_FK)
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        validar_limite_personal(db, clinica_id)
 
     return crear_usuario_con_perfil(
         db=db,
         datos=datos,
         hash_contrasena=generar_hash_password(datos.password),
-        clinica_id=usuario_actual.clinica_id_FK
+        clinica_id=getattr(usuario_actual, "clinica_id_FK", None)
     )
 
 
@@ -187,14 +185,11 @@ def actualizar_usuario(
             detail="Solo el administrador o coordinador pueden actualizar usuarios"
         )
 
-    usuario = (
-        db.query(Usuario)
-        .filter(
-            Usuario.id_PK == usuario_id,
-            Usuario.clinica_id_FK == usuario_actual.clinica_id_FK
-        )
-        .first()
-    )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    query_u = db.query(Usuario).filter(Usuario.id_PK == usuario_id)
+    if clinica_id is not None:
+        query_u = query_u.filter(Usuario.clinica_id_FK == clinica_id)
+    usuario = query_u.first()
 
     if not usuario:
         raise HTTPException(

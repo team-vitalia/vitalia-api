@@ -35,12 +35,11 @@ def obtener_pacientes(
 ):
     verificar_permiso_recepcion(usuario_actual)
 
-    pacientes = (
-        db.query(Paciente)
-        .filter(Paciente.clinica_id_FK == usuario_actual.clinica_id_FK)
-        .order_by(Paciente.id_PK)
-        .all()
-    )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    query_pac = db.query(Paciente)
+    if clinica_id is not None:
+        query_pac = query_pac.filter(Paciente.clinica_id_FK == clinica_id)
+    pacientes = query_pac.order_by(Paciente.id_PK).all()
 
     return pacientes
 
@@ -53,14 +52,11 @@ def obtener_paciente(
 ):
     verificar_permiso_recepcion(usuario_actual)
 
-    paciente = (
-        db.query(Paciente)
-        .filter(
-            Paciente.id_PK == paciente_id,
-            Paciente.clinica_id_FK == usuario_actual.clinica_id_FK
-        )
-        .first()
-    )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    query_pac = db.query(Paciente).filter(Paciente.id_PK == paciente_id)
+    if clinica_id is not None:
+        query_pac = query_pac.filter(Paciente.clinica_id_FK == clinica_id)
+    paciente = query_pac.first()
 
     if not paciente:
         raise HTTPException(
@@ -83,7 +79,9 @@ def crear_paciente(
 ):
     verificar_permiso_recepcion(usuario_actual)
 
-    validar_limite_pacientes(db, usuario_actual.clinica_id_FK)
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        validar_limite_pacientes(db, clinica_id)
 
     if datos.curp and curp_ya_registrada(db, datos.curp):
         raise HTTPException(
@@ -92,7 +90,7 @@ def crear_paciente(
         )
 
     paciente = Paciente(
-        clinica_id_FK=usuario_actual.clinica_id_FK,
+        clinica_id_FK=getattr(usuario_actual, "clinica_id_FK", None),
         nombre=datos.nombre,
         apellido=datos.apellido,
         apellido_paterno=datos.apellido_paterno,
@@ -132,14 +130,11 @@ def agregar_alergia(
     if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
         raise HTTPException(status_code=403, detail="No tienes permiso para modificar expedientes")
 
-    paciente = (
-        db.query(Paciente)
-        .filter(
-            Paciente.id_PK == paciente_id,
-            Paciente.clinica_id_FK == usuario_actual.clinica_id_FK
-        )
-        .first()
-    )
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    query_pac = db.query(Paciente).filter(Paciente.id_PK == paciente_id)
+    if clinica_id is not None:
+        query_pac = query_pac.filter(Paciente.clinica_id_FK == clinica_id)
+    paciente = query_pac.first()
     if not paciente:
         raise HTTPException(status_code=404, detail="Paciente no encontrado")
 

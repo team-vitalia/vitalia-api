@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/auditoria", tags=["Auditoría"])
 @router.get("", response_model=PageResponse[AuditoriaOut])
 def listar_auditoria(
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
+    current: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
     usuario_id: Optional[int] = Query(None),
     nombre_tabla: Optional[str] = Query(None),
     accion: Optional[str] = Query(None),
@@ -27,6 +27,7 @@ def listar_auditoria(
     page_size: int = Query(20, ge=1, le=100),
 ):
     items, total = AuditoriaService(db).listar(
+        clinica_id=getattr(current, "clinica_id_FK", None),
         usuario_id=usuario_id, nombre_tabla=nombre_tabla, accion=accion,
         desde=desde, hasta=hasta, page=page, page_size=page_size,
     )
@@ -41,7 +42,7 @@ def listar_auditoria(
 def obtener_auditoria(
     registro_id: int,
     db: Session = Depends(get_db),
-    _: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
+    current: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
 ):
     reg = AuditoriaService(db).obtener(registro_id)
     if not reg:

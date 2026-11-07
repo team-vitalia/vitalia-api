@@ -23,19 +23,45 @@ router = APIRouter(prefix="/api/almacen", tags=["Almacén e Interacciones"])
 
 # 1. Listar el catálogo de medicamentos (CU-34 / Requerido para la App)
 @router.get("/medicamentos", response_model=List[MedicamentoResponse])
-def listar_medicamentos(db: Session = Depends(get_db)):
-    return db.query(Medicamento).all()
+def listar_medicamentos(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    query = db.query(Medicamento)
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        query = query.filter(Medicamento.clinica_id_FK == clinica_id)
+    return query.all()
 
 
 # 2. Listar el inventario de almacén (CU-34 a CU-38)
 @router.get("/inventario", response_model=List[InventarioResponse])
-def listar_inventario(db: Session = Depends(get_db)):
-    return db.query(Inventario).all()
+def listar_inventario(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    query = db.query(Inventario)
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        query = query.join(Medicamento, Inventario.medicamento_id_FK == Medicamento.id_PK).filter(Medicamento.clinica_id_FK == clinica_id)
+    return query.all()
 
 
 # 3. Registrar lote/entrada en almacén (CU-35)
 @router.post("/inventario", response_model=InventarioResponse, status_code=status.HTTP_201_CREATED)
-def registrar_lote_inventario(payload: InventarioCreate, db: Session = Depends(get_db)):
+def registrar_lote_inventario(
+    payload: InventarioCreate,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    if payload.medicamento_id_FK:
+        med = db.query(Medicamento).filter(Medicamento.id_PK == payload.medicamento_id_FK).first()
+        if not med:
+            raise HTTPException(status_code=404, detail="Medicamento no encontrado")
+        clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+        if clinica_id is not None and getattr(med, "clinica_id_FK", None) is not None and med.clinica_id_FK != clinica_id:
+            raise HTTPException(status_code=403, detail="No tienes acceso a este medicamento")
+
     nuevo_lote = Inventario(**payload.model_dump())
     db.add(nuevo_lote)
     db.commit()
@@ -56,6 +82,9 @@ def actualizar_lote(
     lote = db.query(Inventario).filter(Inventario.id_PK == lote_id).first()
     if not lote:
         raise HTTPException(status_code=404, detail="Lote no encontrado")
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None and lote.medicamento and lote.medicamento.clinica_id_FK != clinica_id:
+        raise HTTPException(status_code=403, detail="No tienes permiso sobre este lote")
 
     for campo, valor in payload.model_dump().items():
         setattr(lote, campo, valor)

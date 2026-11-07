@@ -43,6 +43,13 @@ async def consultar_asistente_ia(
             detail="Cita no encontrada",
         )
 
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None and cita.clinica_id_FK != clinica_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tienes permiso para acceder al asistente en una cita de otra clínica.",
+        )
+
     if usuario_actual.rol_id_FK == 2:
         doctor = (
             db.query(Doctor)

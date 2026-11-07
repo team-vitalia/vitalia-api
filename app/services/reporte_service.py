@@ -31,20 +31,25 @@ def _iso(d: date | None) -> str | None:
 class ReporteService:
     """Reportes de gestión (C2) calculados con las tablas reales del sistema."""
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, clinica_id: int | None = None):
         self.db = db
+        self.clinica_id = clinica_id
 
     def _nombres_doctores(self) -> dict[int, str]:
-        filas = self.db.execute(
-            select(Doctor.id_PK, Usuario.nombre).join(
-                Usuario, Usuario.id_PK == Doctor.usuario_id_FK, isouter=True
-            )
-        ).all()
+        stmt = select(Doctor.id_PK, Usuario.nombre).join(
+            Usuario, Usuario.id_PK == Doctor.usuario_id_FK, isouter=True
+        )
+        if self.clinica_id is not None:
+            stmt = stmt.where(Usuario.clinica_id_FK == self.clinica_id)
+        filas = self.db.execute(stmt).all()
         return {doc_id: nombre for doc_id, nombre in filas}
 
     # ---------- Ocupación de salas ----------
     def ocupacion_salas(self, desde: date | None, hasta: date | None):
-        salas = self.db.scalars(select(Sala).order_by(Sala.nombre)).all()
+        stmt_salas = select(Sala).order_by(Sala.nombre)
+        if self.clinica_id is not None:
+            stmt_salas = stmt_salas.where(Sala.clinica_id_FK == self.clinica_id)
+        salas = self.db.scalars(stmt_salas).all()
 
         por_estado: dict[str, int] = defaultdict(int)
         for s in salas:
@@ -58,6 +63,8 @@ class ReporteService:
             .where(EventoCalendario.ubicacion.is_not(None))
             .where(Cita.estado.notin_(ESTADOS_CITA_INACTIVOS) | Cita.estado.is_(None))
         )
+        if self.clinica_id is not None:
+            stmt = stmt.where(Cita.clinica_id_FK == self.clinica_id)
         if desde:
             stmt = stmt.where(Cita.fecha >= desde)
         if hasta:
@@ -103,6 +110,8 @@ class ReporteService:
         stmt = select(Cita.doctor_id_FK, Cita.estado, func.count()).group_by(
             Cita.doctor_id_FK, Cita.estado
         )
+        if self.clinica_id is not None:
+            stmt = stmt.where(Cita.clinica_id_FK == self.clinica_id)
         if desde:
             stmt = stmt.where(Cita.fecha >= desde)
         if hasta:
@@ -134,9 +143,13 @@ class ReporteService:
     # ---------- Tiempos de espera ----------
     def tiempos_espera(self, desde: date | None, hasta: date | None):
         ini, fin = _rango_datetime(desde, hasta)
-        stmt = select(Cola.doctor_id_FK, Cola.hora_registro, Cola.hora_llamado).where(
-            Cola.hora_registro.is_not(None), Cola.hora_llamado.is_not(None)
+        stmt = (
+            select(Cola.doctor_id_FK, Cola.hora_registro, Cola.hora_llamado)
+            .join(Cita, Cola.cita_id_FK == Cita.id_PK)
+            .where(Cola.hora_registro.is_not(None), Cola.hora_llamado.is_not(None))
         )
+        if self.clinica_id is not None:
+            stmt = stmt.where(Cita.clinica_id_FK == self.clinica_id)
         if ini:
             stmt = stmt.where(Cola.hora_registro >= ini)
         if fin:
@@ -175,7 +188,7 @@ class ReporteService:
     # ---------- Inventario bajo ----------
     def inventario_bajo(self, umbral: int = 10):
         stock_total = func.coalesce(func.sum(Inventario.stock_actual), 0)
-        filas = self.db.execute(
+        query_inv = (
             select(
                 Medicamento.id_PK,
                 Medicamento.nombre,
@@ -186,6 +199,11 @@ class ReporteService:
                 func.min(Inventario.fecha_vencimiento).label("proximo_vencimiento"),
             )
             .join(Inventario, Inventario.medicamento_id_FK == Medicamento.id_PK)
+        )
+        if self.clinica_id is not None:
+            query_inv = query_inv.where(Medicamento.clinica_id_FK == self.clinica_id)
+        query_inv = (
+            query_inv
             .group_by(
                 Medicamento.id_PK,
                 Medicamento.nombre,
@@ -194,7 +212,8 @@ class ReporteService:
             )
             .having(stock_total <= umbral)
             .order_by(stock_total.asc(), Medicamento.nombre)
-        ).all()
+        )
+        filas = self.db.execute(query_inv).all()
 
         detalle = [
             {
@@ -213,9 +232,14 @@ class ReporteService:
     # ---------- Recetas ----------
     def recetas(self, desde: date | None, hasta: date | None):
         ini, fin = _rango_datetime(desde, hasta)
-        stmt = select(Receta.doctor_id_FK, Receta.estado, func.count()).group_by(
-            Receta.doctor_id_FK, Receta.estado
+        stmt = (
+            select(Receta.doctor_id_FK, Receta.estado, func.count())
+            .join(Doctor, Receta.doctor_id_FK == Doctor.id_PK)
+            .join(Usuario, Doctor.usuario_id_FK == Usuario.id_PK)
+            .group_by(Receta.doctor_id_FK, Receta.estado)
         )
+        if self.clinica_id is not None:
+            stmt = stmt.where(Usuario.clinica_id_FK == self.clinica_id)
         if ini:
             stmt = stmt.where(Receta.creado_en >= ini)
         if fin:

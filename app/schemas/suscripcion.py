@@ -1,5 +1,3 @@
-"""Esquemas Pydantic para el flujo de pre-registro y suscripciones SaaS."""
-
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 
@@ -17,4 +15,22 @@ class PreRegistroResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     clinica_id: int
+    mensaje: str
+
+
+class ConfirmarSuscripcionRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    subscription_id: str
+    clinica_id: int | None = None
+    paypal_plan_id: str | None = None
+    correo: EmailStr | None = None
+
+
+class ConfirmarSuscripcionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    status: str
+    clinica_id: int
+    activa: bool
     mensaje: str

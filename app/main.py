@@ -48,11 +48,14 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
         "http://localhost:8081",
         "http://127.0.0.1:8081",
         "http://localhost:19006",
         "http://127.0.0.1:19006",
-        "*",  # Permite peticiones durante desarrollo
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -149,10 +152,20 @@ def obtener_usuario_actual(
                 "nombre_plan": plan.nombre if plan else "Básico",
                 "incluye_ia": (plan.limite_ia_mensual > 0) if plan else False,
                 "incluye_calendar": plan.incluye_calendar if plan else False,
+                "incluye_contratos": plan.incluye_contratos if plan else False,
+                "limite_personal": plan.limite_personal if plan else 3,
+                "limite_pacientes": plan.limite_pacientes if plan else 100,
+                "limite_ia_mensual": plan.limite_ia_mensual if plan else 0,
+                "precio_mensual": plan.precio_mensual if plan else 599.0,
             } if plan else {
                 "nombre_plan": "Básico",
                 "incluye_ia": False,
                 "incluye_calendar": False,
+                "incluye_contratos": False,
+                "limite_personal": 3,
+                "limite_pacientes": 100,
+                "limite_ia_mensual": 0,
+                "precio_mensual": 599.0,
             }
         }
 

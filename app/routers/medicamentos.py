@@ -29,6 +29,8 @@ def buscar_medicamentos(
         .group_by(Medicamento.id_PK)
     )
     
+    if usuario_actual.clinica_id_FK is not None:
+        query = query.filter(Medicamento.clinica_id_FK == usuario_actual.clinica_id_FK)
     if q:
         query = query.filter(Medicamento.nombre.ilike(f"%{q}%"))
         
@@ -56,7 +58,10 @@ def crear_medicamento(
     if usuario_actual.rol_id_FK != 1:
         raise HTTPException(status_code=403, detail="No tienes permiso")
 
-    nuevo = Medicamento(**payload.model_dump())
+    datos = payload.model_dump()
+    if usuario_actual.clinica_id_FK is not None:
+        datos["clinica_id_FK"] = usuario_actual.clinica_id_FK
+    nuevo = Medicamento(**datos)
     db.add(nuevo)
     db.commit()
     db.refresh(nuevo)
