@@ -21,7 +21,11 @@ from app.schemas.usuario import (
     UsuarioCrear,
     UsuarioResponse,
 )
-from app.services.suscripcion_service import validar_limite_personal
+from app.services.suscripcion_service import (
+    validar_limite_personal,
+    verificar_limite_pacientes,
+    verificar_limite_personal,
+)
 from app.services.usuario_service import (
     ROL_ADMIN,
     ROL_COORDINADOR,
@@ -162,7 +166,10 @@ def crear_usuario(
 
     clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
     if clinica_id is not None:
-        validar_limite_personal(db, clinica_id)
+        if datos.rol_id_FK == ROL_PACIENTE:
+            verificar_limite_pacientes(db, clinica_id)
+        else:
+            verificar_limite_personal(db, clinica_id)
 
     return crear_usuario_con_perfil(
         db=db,

@@ -9,7 +9,10 @@ from app.models.alergia_paciente import AlergiaPaciente
 from app.models.paciente import Paciente
 from app.models.usuario import Usuario
 from app.schemas.paciente import AlergiaCrear, PacienteCrear, PacienteResponse
-from app.services.suscripcion_service import validar_limite_pacientes
+from app.services.suscripcion_service import (
+    validar_limite_pacientes,
+    verificar_limite_pacientes,
+)
 from app.services.usuario_service import MSG_CURP_DUPLICADA, curp_ya_registrada
 
 router = APIRouter(
@@ -81,7 +84,7 @@ def crear_paciente(
 
     clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
     if clinica_id is not None:
-        validar_limite_pacientes(db, clinica_id)
+        verificar_limite_pacientes(db, clinica_id)
 
     if datos.curp and curp_ya_registrada(db, datos.curp):
         raise HTTPException(
