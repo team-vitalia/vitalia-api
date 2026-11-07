@@ -1,4 +1,5 @@
 from datetime import datetime
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -15,6 +16,9 @@ from app.schemas.suscripcion import (
     PreRegistroRequest,
     PreRegistroResponse,
 )
+from app.services.connection_manager import manager
+
+logger = logging.getLogger("vitalia.suscripciones")
 
 router = APIRouter(
     prefix="/api/suscripciones",
@@ -171,28 +175,66 @@ def preregistro_clinica(
     response_model=ConfirmarSuscripcionResponse,
     status_code=status.HTTP_200_OK,
 )
-def confirmar_suscripcion(
+async def confirmar_suscripcion(
     datos: ConfirmarSuscripcionRequest,
     db: Session = Depends(get_db),
 ):
     clinica = None
 
-    if datos.clinica_id:
+    if datos.clinica_id and datos.clinica_id > 0:
         clinica = db.query(Clinica).filter(Clinica.id_PK == datos.clinica_id).first()
 
     if not clinica and datos.correo:
         user = db.query(Usuario).filter(Usuario.correo_electronico == str(datos.correo).strip().lower()).first()
         if user and user.clinica:
             clinica = user.clinica
+        elif user and not user.clinica:
+            clinica = Clinica(
+                nombre_comercial=datos.nombre_clinica or "Clínica VITALIA",
+                plan_id_FK=1,
+                activa=True,
+                paypal_subscription_id=datos.subscription_id.strip(),
+            )
+            db.add(clinica)
+            db.flush()
+            user.clinica_id_FK = clinica.id_PK
 
     if not clinica and datos.subscription_id:
         clinica = db.query(Clinica).filter(Clinica.paypal_subscription_id == datos.subscription_id.strip()).first()
 
+    if not clinica and datos.nombre_clinica:
+        clinica = db.query(Clinica).filter(Clinica.nombre_comercial == datos.nombre_clinica.strip()).first()
+
     if not clinica:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Clínica asociada no encontrada",
+        plan_id = 1
+        if datos.paypal_plan_id:
+            plan_obj = db.query(PlanSuscripcion).filter(
+                PlanSuscripcion.paypal_plan_id == datos.paypal_plan_id.strip()
+            ).first()
+            if plan_obj:
+                plan_id = plan_obj.id_PK
+
+        clinica = Clinica(
+            nombre_comercial=datos.nombre_clinica or "Mi Clínica",
+            plan_id_FK=plan_id,
+            fecha_registro=datetime.now(),
+            activa=True,
+            paypal_subscription_id=datos.subscription_id.strip(),
         )
+        db.add(clinica)
+        db.flush()
+
+        if datos.correo:
+            rol_admin = db.query(Role).filter(Role.nombre == "Administrador").first() or db.query(Role).first()
+            nuevo_usuario = Usuario(
+                clinica_id_FK=clinica.id_PK,
+                nombre=datos.nombre_admin or "Administrador",
+                correo_electronico=str(datos.correo).strip().lower(),
+                hash_contrasena=generar_hash_password("Temp12345!"),
+                rol_id_FK=rol_admin.id_PK if rol_admin else 1,
+                estado="activo",
+            )
+            db.add(nuevo_usuario)
 
     clinica.activa = True
     clinica.paypal_subscription_id = datos.subscription_id.strip()
@@ -220,9 +262,29 @@ def confirmar_suscripcion(
     db.commit()
     db.refresh(clinica)
 
+    nombre_plan_actual = clinica.plan.nombre if clinica.plan else None
+
+    evento_ws = {
+        "type": "plan_actualizado",
+        "event": "suscripcion_actualizada",
+        "clinica_id": clinica.id_PK,
+        "plan_id": clinica.plan_id_FK,
+        "nombre_plan": nombre_plan_actual,
+        "activa": clinica.activa,
+        "title": "Suscripción Actualizada",
+        "message": f"El plan de la clínica ha sido actualizado a {nombre_plan_actual} exitosamente.",
+        "timestamp": datetime.now().isoformat(),
+    }
+
+    try:
+        await manager.broadcast(evento_ws)
+    except Exception as e:
+        logger.warning(f"Error al emitir broadcast websocket: {e}")
+
     return ConfirmarSuscripcionResponse(
         status="success",
         clinica_id=clinica.id_PK,
         activa=clinica.activa,
         mensaje="Suscripción activada exitosamente",
+        nombre_plan=nombre_plan_actual,
     )

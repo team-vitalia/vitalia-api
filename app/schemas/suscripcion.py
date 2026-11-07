@@ -24,7 +24,9 @@ class ConfirmarSuscripcionRequest(BaseModel):
     subscription_id: str
     clinica_id: int | None = None
     paypal_plan_id: str | None = None
-    correo: EmailStr | None = None
+    correo: str | None = None
+    nombre_clinica: str | None = None
+    nombre_admin: str | None = None
 
 
 class ConfirmarSuscripcionResponse(BaseModel):
@@ -34,3 +36,4 @@ class ConfirmarSuscripcionResponse(BaseModel):
     clinica_id: int
     activa: bool
     mensaje: str
+    nombre_plan: str | None = None
