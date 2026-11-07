@@ -20,7 +20,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "limite_ia_mensual": 0,
         "limite_sucursales": 1,
         "incluye_contratos": False,
-        "paypal_plan_id": "P-61L31376NX417651DNLWUKSQ",
+        "paypal_plan_id": "P-9JA53339DW996433FNLXJMJA",
     },
     {
         "nombre": "Clínica",
@@ -33,7 +33,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "limite_ia_mensual": 0,
         "limite_sucursales": 1,
         "incluye_contratos": False,
-        "paypal_plan_id": "P-5CC29855SK5899208NLWUMWI",
+        "paypal_plan_id": "P-18S21614P2665104JNLXJNKI",
     },
     {
         "nombre": "Profesional",
@@ -46,7 +46,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "limite_ia_mensual": 100,
         "limite_sucursales": 1,
         "incluye_contratos": False,
-        "paypal_plan_id": "P-5J121652NS326140HNLWUNNI",
+        "paypal_plan_id": "P-32342459V8640593NNLXJN7A",
     },
     {
         "nombre": "Empresarial",
@@ -59,7 +59,7 @@ PLANES_INICIALES: Sequence[dict] = [
         "limite_ia_mensual": 500,
         "limite_sucursales": 1,
         "incluye_contratos": True,
-        "paypal_plan_id": "P-64643939B6992035JNLWUOCY",
+        "paypal_plan_id": "P-3BM73023B1884583RNLXJOSQ",
     },
 ]
 

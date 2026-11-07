@@ -79,7 +79,7 @@ def test_webhook_activacion_suscripcion_crea_clinica_y_admin(sesion_db: Session,
         "event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
         "resource": {
             "id": "I-SUB-ACT-123456",
-            "plan_id": "P-61L31376NX417651DNLWUKSQ",
+            "plan_id": "P-9JA53339DW996433FNLXJMJA",
             "status": "ACTIVE",
             "subscriber": {
                 "email_address": "admin.dr@nuevaclinica.com",
@@ -107,7 +107,7 @@ def test_webhook_activacion_suscripcion_crea_clinica_y_admin(sesion_db: Session,
     assert clinica_creada.activa is True
     assert clinica_creada.nombre_comercial == "Clínica Los Olivos"
     assert clinica_creada.plan.nombre == "Básico"
-    assert clinica_creada.plan.paypal_plan_id == "P-61L31376NX417651DNLWUKSQ"
+    assert clinica_creada.plan.paypal_plan_id == "P-9JA53339DW996433FNLXJMJA"
 
     admin_creado = sesion_db.query(Usuario).filter(
         Usuario.correo_electronico == "admin.dr@nuevaclinica.com"
@@ -225,7 +225,7 @@ def test_servicio_aprovisionamiento_genera_password_temporal_valida(sesion_db: S
     payload = {
         "resource": {
             "id": "I-SUB-DIRECT-55555",
-            "plan_id": "P-64643939B6992035JNLWUOCY",
+            "plan_id": "P-3BM73023B1884583RNLXJOSQ",
             "subscriber": {
                 "email_address": "directo@empresarial.com",
                 "name": {

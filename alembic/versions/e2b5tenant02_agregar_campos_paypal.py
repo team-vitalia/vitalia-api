@@ -15,10 +15,10 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 PLANES_PAYPAL = [
-    ("Básico", "P-61L31376NX417651DNLWUKSQ"),
-    ("Clínica", "P-5CC29855SK5899208NLWUMWI"),
-    ("Profesional", "P-5J121652NS326140HNLWUNNI"),
-    ("Empresarial", "P-64643939B6992035JNLWUOCY"),
+    ("Básico", "P-9JA53339DW996433FNLXJMJA"),
+    ("Clínica", "P-18S21614P2665104JNLXJNKI"),
+    ("Profesional", "P-32342459V8640593NNLXJN7A"),
+    ("Empresarial", "P-3BM73023B1884583RNLXJOSQ"),
 ]
 
 

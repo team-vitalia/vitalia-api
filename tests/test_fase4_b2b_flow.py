@@ -75,7 +75,7 @@ def test_preregistro_crea_clinica_y_admin_inactivos(sesion_db: Session, cliente:
         "nombre_admin": "Dr. Fernando Ruiz",
         "correo": "fernando.ruiz@sanpatricio.com",
         "password": "PasswordSegura123!",
-        "paypal_plan_id": "P-5CC29855SK5899208NLWUMWI",
+        "paypal_plan_id": "P-18S21614P2665104JNLXJNKI",
     }
 
     respuesta = cliente.post("/api/suscripciones/pre-registro", json=payload_registro)
@@ -105,7 +105,7 @@ def test_webhook_paypal_activa_clinica_preregistrada_con_custom_id(sesion_db: Se
         "nombre_admin": "Dra. Elena Vasquez",
         "correo": "elena.vasquez@metro.com",
         "password": "PasswordMetro456!",
-        "paypal_plan_id": "P-5J121652NS326140HNLWUNNI",
+        "paypal_plan_id": "P-32342459V8640593NNLXJN7A",
     }
     resp_registro = cliente.post("/api/suscripciones/pre-registro", json=payload_registro)
     assert resp_registro.status_code == 201
@@ -116,7 +116,7 @@ def test_webhook_paypal_activa_clinica_preregistrada_con_custom_id(sesion_db: Se
         "event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
         "resource": {
             "id": "I-SUB-PAYPAL-B2B-123",
-            "plan_id": "P-5J121652NS326140HNLWUNNI",
+            "plan_id": "P-32342459V8640593NNLXJN7A",
             "custom_id": str(clinica_id),
             "status": "ACTIVE",
             "subscriber": {

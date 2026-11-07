@@ -221,7 +221,7 @@ def test_mocking_validacion_webhook_paypal_y_activacion_tenant(
         "event_type": "BILLING.SUBSCRIPTION.ACTIVATED",
         "resource": {
             "id": "I-SUB-PAYPAL-MOCK-999",
-            "plan_id": "P-5CC29855SK5899208NLWUMWI",
+            "plan_id": "P-18S21614P2665104JNLXJNKI",
             "custom_id": "99",
             "status": "ACTIVE",
             "subscriber": {
