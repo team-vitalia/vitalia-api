@@ -1,3 +1,4 @@
+import os
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -44,19 +45,31 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# Configuración de CORS habilitada para Expo y navegadores web
+# Configuración de CORS habilitada para desarrollo y producción
+origenes_cors = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    "http://localhost:19006",
+    "http://127.0.0.1:19006",
+    "https://landing-ten-sigma-42.vercel.app",
+    "https://vitalia-app-fowe.vercel.app",
+]
+
+cors_env = os.getenv("CORS_ORIGINS", "")
+if cors_env:
+    for o in cors_env.split(","):
+        clean_o = o.strip().rstrip("/")
+        if clean_o and clean_o not in origenes_cors:
+            origenes_cors.append(clean_o)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-        "http://localhost:8081",
-        "http://127.0.0.1:8081",
-        "http://localhost:19006",
-        "http://127.0.0.1:19006",
-    ],
+    allow_origins=origenes_cors,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
