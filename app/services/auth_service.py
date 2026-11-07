@@ -9,6 +9,13 @@ from app.core.security import (
 )
 
 
+MENSAJE_CUENTA_DESACTIVADA = "Tu cuenta está desactivada. Contacta al administrador."
+
+
+class CuentaDesactivada(Exception):
+    """La persona se identificó correctamente, pero su cuenta no está activa."""
+
+
 def autenticar_usuario(
     db: Session,
     correo_electronico: str,
@@ -26,19 +33,22 @@ def autenticar_usuario(
     if not usuario:
         return None
 
-    # Usuario bloqueado/inactivo
-    if usuario.estado != "activo":
-        return None
-
-    # Contraseña incorrecta
+    # Contraseña incorrecta (también para cuentas inactivas: así solo quien
+    # conoce la contraseña puede saber que la cuenta está desactivada y no se
+    # revela a terceros qué correos existen).
     if not verificar_password(
         password,
         usuario.hash_contrasena
     ):
-        usuario.intentos_fallidos += 1
-        db.commit()
+        if usuario.estado == "activo":
+            usuario.intentos_fallidos += 1
+            db.commit()
 
         return None
+
+    # Credenciales correctas, pero la cuenta está inactiva/desactivada
+    if usuario.estado != "activo":
+        raise CuentaDesactivada()
 
     # Login correcto
     usuario.intentos_fallidos = 0

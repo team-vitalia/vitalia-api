@@ -5,7 +5,11 @@ from app.core.security import generar_hash_password
 from app.database.connection import get_db
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.usuario import PacienteRegistro, UsuarioCrear
-from app.services.auth_service import autenticar_usuario
+from app.services.auth_service import (
+    MENSAJE_CUENTA_DESACTIVADA,
+    CuentaDesactivada,
+    autenticar_usuario,
+)
 from app.services.usuario_service import ROL_PACIENTE, crear_usuario_con_perfil
 
 
@@ -23,11 +27,17 @@ def login(
     datos: LoginRequest,
     db: Session = Depends(get_db)
 ):
-    resultado = autenticar_usuario(
-        db=db,
-        correo_electronico=datos.correo_electronico,
-        password=datos.password
-    )
+    try:
+        resultado = autenticar_usuario(
+            db=db,
+            correo_electronico=datos.correo_electronico,
+            password=datos.password
+        )
+    except CuentaDesactivada:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=MENSAJE_CUENTA_DESACTIVADA
+        )
 
     if not resultado:
         raise HTTPException(
