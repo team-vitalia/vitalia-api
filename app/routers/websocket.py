@@ -10,7 +10,10 @@ import datetime
 import logging
 from typing import Optional, Dict, Any
 from pydantic import BaseModel
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException
+
+from app.core.dependencies import get_current_user
+from app.models.usuario import Usuario
 
 from app.services.connection_manager import manager
 from app.services.email_service import enviar_correo
@@ -115,10 +118,16 @@ async def websocket_notifications_endpoint(websocket: WebSocket, client_id: str)
 # --- ENDPOINTS REST AUXILIARES DE PRUEBA ---
 
 @router.post("/send-test/{client_id}")
-async def send_test_notification(client_id: str, payload: Optional[Dict[str, Any]] = None):
+async def send_test_notification(
+    client_id: str,
+    payload: Optional[Dict[str, Any]] = None,
+    usuario_actual: Usuario = Depends(get_current_user),
+):
     """
     Endpoint HTTP REST para enviar una notificación de prueba a un cliente específico conectado.
     """
+    if usuario_actual.rol_id_FK != 1:
+        raise HTTPException(status_code=403, detail="Solo el administrador puede usar los endpoints de prueba")
     mensaje = payload or {
         "type": "notification",
         "title": "Notificación Personalizada VITALIA",
@@ -141,10 +150,15 @@ async def send_test_notification(client_id: str, payload: Optional[Dict[str, Any
 
 
 @router.post("/broadcast-test")
-async def broadcast_test_notification(payload: Optional[Dict[str, Any]] = None):
+async def broadcast_test_notification(
+    payload: Optional[Dict[str, Any]] = None,
+    usuario_actual: Usuario = Depends(get_current_user),
+):
     """
     Endpoint HTTP REST para emitir una notificación broadcast a TODOS los clientes conectados.
     """
+    if usuario_actual.rol_id_FK != 1:
+        raise HTTPException(status_code=403, detail="Solo el administrador puede usar los endpoints de prueba")
     mensaje = payload or {
         "type": "broadcast_notification",
         "title": "Aviso General VITALIA",
@@ -167,7 +181,12 @@ class EmailPruebaRequest(BaseModel):
 
 
 @router.post("/email-prueba")
-async def email_prueba(datos: EmailPruebaRequest):
+async def email_prueba(
+    datos: EmailPruebaRequest,
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    if usuario_actual.rol_id_FK != 1:
+        raise HTTPException(status_code=403, detail="Solo el administrador puede usar los endpoints de prueba")
     exito = await enviar_correo(
         destinatario=datos.destinatario,
         asunto=datos.asunto,

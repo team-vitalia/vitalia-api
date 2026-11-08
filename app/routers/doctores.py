@@ -482,6 +482,16 @@ def obtener_mis_pacientes(
     # Extraer los IDs de los tuplos
     ids = [p[0] for p in pacientes_ids if p[0] is not None]
 
+    # También los pacientes que otro médico le transfirió (aunque aún no tengan citas)
+    from app.models.transferencia_paciente import TransferenciaPaciente
+    transferidos = (
+        db.query(TransferenciaPaciente.paciente_id_FK)
+        .filter(TransferenciaPaciente.doctor_destino_id_FK == doctor.id_PK)
+        .distinct()
+        .all()
+    )
+    ids = list({*ids, *[t[0] for t in transferidos if t[0] is not None]})
+
     if not ids:
         return []
 

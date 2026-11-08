@@ -33,3 +33,8 @@ from app.models.sala import Sala
 from app.models.equipamiento_sala import EquipamientoSala
 from app.models.notificacion import Notificacion
 from app.models.doctor_sala import DoctorSala
+
+from app.models.presentacion_medicamento import PresentacionMedicamento
+from app.models.dispensacion import Dispensacion
+from app.models.lista_espera import ListaEspera
+from app.models.transferencia_paciente import TransferenciaPaciente
