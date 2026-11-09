@@ -48,5 +48,13 @@ class ItemReceta(Base):
         Integer
     )
 
+    # Unidades ya entregadas por almacén (se actualiza en cada dispensación)
+    cantidad_dispensada: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+        nullable=False
+    )
+
     receta = relationship("Receta")
     medicamento = relationship("Medicamento")

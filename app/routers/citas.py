@@ -691,9 +691,18 @@ async def cambiar_estado_cita_patch(
     else:
         verificar_permiso_recepcion(usuario_actual)
 
+    estado_previo = (cita.estado or "").lower()
     cita.estado = estado
     db.commit()
     db.refresh(cita)
+
+    # Si se liberó un horario, se avisa al siguiente paciente en lista de espera
+    if estado in ("cancelada", "no_asistio") and estado_previo not in ("cancelada", "no_asistio"):
+        from app.services.lista_espera_service import notificar_siguiente_en_espera
+        try:
+            notificar_siguiente_en_espera(db, cita.clinica_id_FK, cita.doctor_id_FK)
+        except Exception:  # noqa: BLE001  (el aviso no debe romper el cambio de estado)
+            pass
     return cita
 
 # ==============================================================================
@@ -739,6 +748,8 @@ async def eliminar_cita(
     if cita.google_event_id and target_calendar_user:
         sincronizar_eliminacion_google_calendar(user_id=target_calendar_user, event_id=cita.google_event_id)
 
+    clinica_cita, doctor_cita = cita.clinica_id_FK, cita.doctor_id_FK
+
     try:
         cola = db.query(Cola).filter(Cola.cita_id_FK == cita_id).first()
         if cola:
@@ -747,6 +758,13 @@ async def eliminar_cita(
 
         db.delete(cita)
         db.commit()
+
+        # Se liberó un horario: avisar al siguiente paciente en lista de espera
+        from app.services.lista_espera_service import notificar_siguiente_en_espera
+        try:
+            notificar_siguiente_en_espera(db, clinica_cita, doctor_cita)
+        except Exception:  # noqa: BLE001
+            pass
 
         await notificar_cita_cancelada(
             db=db,
