@@ -228,3 +228,97 @@ def test_listar_planes_superadmin(sesion_db: Session, cliente: TestClient):
         assert "Empresarial" in nombres
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_obtener_metricas_clinica_individual(sesion_db: Session, cliente: TestClient):
+    clinica = sesion_db.query(Clinica).first()
+    superadmin = Usuario(
+        clinica_id_FK=clinica.id_PK,
+        nombre="Admin Metricas",
+        correo_electronico="admin.metricas@vitalia.com",
+        hash_contrasena=generar_hash_password("PasswordSegura123!"),
+        rol_id_FK=1,
+        estado="activo",
+    )
+    sesion_db.add(superadmin)
+    sesion_db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: superadmin
+
+    try:
+        respuesta = cliente.get(f"/api/superadmin/clinicas/{clinica.id_PK}/metricas")
+        assert respuesta.status_code == 200
+        datos = respuesta.json()
+        assert datos["clinica_id"] == clinica.id_PK
+        assert "uso_personal" in datos
+        assert "uso_pacientes" in datos
+        assert "uso_almacenamiento" in datos
+        assert "citas_mes_actual" in datos
+        assert "proximo_ciclo_facturacion" in datos
+        assert "candidato_upsell" in datos
+        assert isinstance(datos["motivos_upsell"], list)
+        assert isinstance(datos["ultimos_accesos"], list)
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_metricas_globales_expandidas(sesion_db: Session, cliente: TestClient):
+    clinica = sesion_db.query(Clinica).first()
+    superadmin = Usuario(
+        clinica_id_FK=clinica.id_PK,
+        nombre="Admin Global",
+        correo_electronico="admin.global@vitalia.com",
+        hash_contrasena=generar_hash_password("PasswordSegura123!"),
+        rol_id_FK=1,
+        estado="activo",
+    )
+    sesion_db.add(superadmin)
+    sesion_db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: superadmin
+
+    try:
+        respuesta = cliente.get("/api/superadmin/metricas")
+        assert respuesta.status_code == 200
+        datos = respuesta.json()
+        assert "ingresos_mensuales" in datos
+        assert "proyeccion_anual" in datos
+        assert "total_clinicas" in datos
+        assert "clinicas_activas" in datos
+        assert "clinicas_inactivas" in datos
+        assert "usuarios_nuevos_mes" in datos
+        assert "tasa_crecimiento_usuarios" in datos
+        assert "historico_6_meses" in datos
+        assert len(datos["historico_6_meses"]) == 6
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_forzar_actualizacion_plan_clinica(sesion_db: Session, cliente: TestClient):
+    clinica = sesion_db.query(Clinica).first()
+    planes = sesion_db.query(PlanSuscripcion).all()
+    otro_plan = next(p for p in planes if p.id_PK != clinica.plan_id_FK)
+
+    superadmin = Usuario(
+        clinica_id_FK=clinica.id_PK,
+        nombre="Admin Update Plan",
+        correo_electronico="admin.updateplan@vitalia.com",
+        hash_contrasena=generar_hash_password("PasswordSegura123!"),
+        rol_id_FK=1,
+        estado="activo",
+    )
+    sesion_db.add(superadmin)
+    sesion_db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: superadmin
+
+    try:
+        respuesta = cliente.patch(
+            f"/api/superadmin/clinicas/{clinica.id_PK}/plan",
+            json={"plan_id": otro_plan.id_PK},
+        )
+        assert respuesta.status_code == 200
+        datos = respuesta.json()
+        assert datos["plan"]["id"] == otro_plan.id_PK
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
