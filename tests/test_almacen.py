@@ -7,6 +7,7 @@ from datetime import date
 from app.database.connection import get_db
 from app.routers.almacen import router
 from app.core.dependencies import get_current_user
+from app.models.medicamento import Medicamento
 
 mock_user = MagicMock()
 mock_user.id_PK = 1
@@ -46,7 +47,7 @@ def test_listar_medicamentos_exito():
     mock_med.codigo_barras = "7501234567890"
     mock_med.categoria = "Analgésicos"
 
-    mock_session.query.return_value.all.return_value = [mock_med]
+    mock_session.query.return_value.order_by.return_value.all.return_value = [mock_med]
 
     response = client.get("/api/almacen/medicamentos")
 
@@ -72,7 +73,10 @@ def test_listar_inventario_exito():
     mock_item.proveedor_id_FK = 2
     mock_item.fecha_recepcion = date(2026, 1, 15)
 
-    mock_session.query.return_value.all.return_value = [mock_item]
+    (
+        mock_session.query.return_value.join.return_value.filter.return_value
+        .order_by.return_value.all.return_value
+    ) = [mock_item]
 
     response = client.get("/api/almacen/inventario")
 
@@ -147,7 +151,11 @@ def test_evaluar_interacciones_con_resultado():
     mock_interaccion.medicamento = MagicMock(nombre="Warfarina")
     mock_interaccion.medicamento_interactuante = MagicMock(nombre="Aspirina")
 
-    mock_session.query.return_value.filter.return_value.all.return_value = [mock_interaccion]
+    medicamentos_query = MagicMock()
+    medicamentos_query.filter.return_value.all.return_value = [(1,), (2,)]
+    interacciones_query = MagicMock()
+    interacciones_query.filter.return_value.all.return_value = [mock_interaccion]
+    mock_session.query.side_effect = [medicamentos_query, interacciones_query]
 
     response = client.post("/api/almacen/evaluar-interacciones", json=payload)
 

@@ -140,6 +140,7 @@ def sesion_db():
         Role(id_PK=3, nombre="Paciente", descripcion="Paciente", esta_activo=True),
         Role(id_PK=4, nombre="Recepción", descripcion="Recepcion", esta_activo=True),
         Role(id_PK=5, nombre="Coordinador", descripcion="Coordinador", esta_activo=True),
+        Role(id_PK=6, nombre="Almacén", descripcion="Gestión de inventario", esta_activo=True),
     ]
     sesion.add_all(roles)
 

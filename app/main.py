@@ -187,6 +187,7 @@ def obtener_usuario_actual(
         "nombre": usuario.nombre,
         "correo": usuario.correo_electronico,
         "rol_id": usuario.rol_id_FK,
+        "rol_nombre": usuario.rol.nombre if usuario.rol else None,
         "estado": usuario.estado,
         "clinica": clinica_data,
     }

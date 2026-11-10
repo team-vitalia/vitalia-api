@@ -14,8 +14,13 @@ class MedicamentoCreate(BaseModel):
 class MedicamentoResponse(BaseModel):
     id_PK: int
     nombre: str
+    principio_activo: str | None = None
     presentacion: str | None = None
     requiere_receta: bool | None = None
+    descripcion: str | None = None
+    codigo_barras: str | None = None
+    categoria: str | None = None
     stock_actual: int = 0
+    clinica_id_FK: int | None = None
 
     model_config = ConfigDict(from_attributes=True)

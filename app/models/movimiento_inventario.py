@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer
+from sqlalchemy import DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.connection import Base
@@ -45,6 +45,10 @@ class MovimientoInventario(Base):
 
     stock_nuevo: Mapped[int | None] = mapped_column(
         Integer
+    )
+
+    motivo: Mapped[str | None] = mapped_column(
+        String(255)
     )
 
     inventario = relationship("Inventario")

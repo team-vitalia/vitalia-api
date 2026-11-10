@@ -1,6 +1,6 @@
-from pydantic import BaseModel
-from typing import List, Optional
-from datetime import date
+from pydantic import BaseModel, ConfigDict, Field
+from typing import List, Literal, Optional
+from datetime import date, datetime
 
 # 1. Schema para la respuesta de Medicamentos (Faltaba este)
 class MedicamentoResponse(BaseModel):
@@ -12,9 +12,9 @@ class MedicamentoResponse(BaseModel):
     descripcion: Optional[str] = None
     codigo_barras: Optional[str] = None
     categoria: Optional[str] = None
+    clinica_id_FK: int | None = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 2. Schemas para Inventario
 class InventarioBase(BaseModel):
@@ -26,15 +26,40 @@ class InventarioBase(BaseModel):
     precio_venta: Optional[float] = None
     proveedor_id_FK: Optional[int] = None
     fecha_recepcion: Optional[date] = None
-
 class InventarioCreate(InventarioBase):
     pass
 
 class InventarioResponse(InventarioBase):
     id_PK: int
+    clinica_id_FK: int | None = None
+    esta_activo: bool = True
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MovimientoInventarioCreate(BaseModel):
+    inventario_id_FK: int
+    tipo: Literal["entrada", "salida", "dispensacion"]
+    cantidad: int = Field(gt=0)
+    motivo: str | None = Field(default=None, max_length=255)
+
+
+class MovimientoInventarioResponse(BaseModel):
+    id_PK: int
+    inventario_id_FK: int | None
+    cantidad: int | None
+    tipo: str | None
+    motivo: str | None = None
+    usuario_id_FK: int | None
+    usuario_nombre: str | None = None
+    creado_en: datetime | None
+    stock_anterior: int | None
+    stock_nuevo: int | None
+    clinica_id_FK: int | None = None
+    medicamento_nombre: str | None = None
+    numero_lote: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 # 3. Schemas para Evaluación de Interacciones
 class EvaluarInteraccionRequest(BaseModel):
