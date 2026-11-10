@@ -166,6 +166,8 @@ def crear_receta(
             raise HTTPException(status_code=404, detail=f"El medicamento con ID {med_id} no existe")
         if clinica is not None and med.clinica_id_FK != clinica:
             raise HTTPException(status_code=403, detail=f"El medicamento {med.nombre} no pertenece a tu clínica")
+        if (med.tipo_articulo or "medicamento") != "medicamento":
+            raise HTTPException(status_code=400, detail=f"«{med.nombre}» es un insumo/equipo y no se puede recetar")
         medicamentos.append(med)
 
     # Interacciones y alergias (avisos de apoyo)

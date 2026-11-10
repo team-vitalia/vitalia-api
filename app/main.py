@@ -42,6 +42,7 @@ from app.routers.consultas import router as consultas_router
 from app.routers.expediente import router as expediente_router
 from app.routers.lista_espera import router as lista_espera_router
 from app.routers.transferencias import router as transferencias_router
+from app.routers.analitica_almacen import router as analitica_almacen_router
 from app.routers.suscripciones import router as suscripciones_router
 from app.routers.superadmin import router as superadmin_router
 
@@ -116,6 +117,7 @@ app.include_router(consultas_router)
 app.include_router(expediente_router)
 app.include_router(lista_espera_router)
 app.include_router(transferencias_router)
+app.include_router(analitica_almacen_router)
 app.add_api_route("/email-prueba", email_prueba, methods=["POST"])
 
 

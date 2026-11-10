@@ -22,6 +22,8 @@ from app.models.receta import Receta
 from app.models.usuario import Usuario
 from app.schemas.almacen import (
     CaducidadOut,
+    ConsumoRequest,
+    ConsumoResponse,
     DispensacionHistorialOut,
     DispensacionOut,
     DispensarRequest,
@@ -259,10 +261,46 @@ def listar_movimientos(
     ]
 
 
+@router.post("/consumos", response_model=ConsumoResponse, status_code=status.HTTP_201_CREATED)
+def registrar_consumo(
+    payload: ConsumoRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    """Registra el uso interno de un artículo (guantes, jeringas, alcohol...) descontando lotes FEFO.
+
+    Estos consumos alimentan las gráficas y la predicción de demanda.
+    """
+    exigir_rol(usuario_actual, ROLES_ALMACEN)
+    articulo = _medicamento_de_clinica(db, payload.medicamento_id, usuario_actual)
+    try:
+        usados = inv.consumir_fefo(db, articulo.id_PK, payload.cantidad, inv.TIPO_CONSUMO, usuario_actual.id_PK)
+    except inv.InventarioError as e:
+        db.rollback()
+        raise _error(e)
+
+    registrar_auditoria(
+        db, usuario_actual, "ACTUALIZAR", "inventario", articulo.id_PK, None,
+        {"articulo": articulo.nombre, "cantidad": payload.cantidad, "area": payload.area},
+        ip=ip_desde_request(request),
+        descripcion=f"Consumo interno: {payload.area or 'sin área'} · {payload.motivo or 'sin motivo'}",
+    )
+    db.commit()
+    return {
+        "medicamento": articulo.nombre,
+        "tipo_articulo": articulo.tipo_articulo or "medicamento",
+        "cantidad": payload.cantidad,
+        "lotes": [{"inventario_id": l.id_PK, "numero_lote": l.numero_lote, "cantidad": c} for l, c in usados],
+        "stock_restante": inv.stock_disponible(db, articulo.id_PK),
+    }
+
+
 # 6. Caducidades y resumen del almacén
 @router.get("/caducidades", response_model=List[CaducidadOut])
 def listar_caducidades(
     dias: int = Query(60, ge=1, le=730, description="Ventana de alerta en días"),
+    tipo: str | None = Query(None, description="medicamento | insumo | equipo"),
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
@@ -283,6 +321,8 @@ def listar_caducidades(
     clinica_id = clinica_de(usuario_actual)
     if clinica_id is not None:
         q = q.filter(Medicamento.clinica_id_FK == clinica_id)
+    if tipo:
+        q = q.filter(Medicamento.tipo_articulo == tipo)
 
     salida = []
     for lote in q.order_by(Inventario.fecha_vencimiento.asc()).all():
@@ -292,6 +332,8 @@ def listar_caducidades(
                 "inventario_id": lote.id_PK,
                 "medicamento_id": lote.medicamento_id_FK,
                 "medicamento": lote.medicamento.nombre if lote.medicamento else None,
+                "tipo_articulo": (lote.medicamento.tipo_articulo if lote.medicamento else None) or "medicamento",
+                "unidad_medida": lote.medicamento.unidad_medida if lote.medicamento else None,
                 "numero_lote": lote.numero_lote,
                 "stock_actual": int(lote.stock_actual or 0),
                 "ubicacion": lote.ubicacion,
@@ -331,15 +373,19 @@ def resumen_almacen(
     ).count()
 
     stock_por_med = (
-        db.query(Medicamento.id_PK, inv.expresion_stock_vigente())
+        db.query(Medicamento.id_PK, inv.expresion_stock_vigente(), Medicamento.stock_minimo, Medicamento.tipo_articulo)
         .outerjoin(Inventario, Inventario.medicamento_id_FK == Medicamento.id_PK)
-        .group_by(Medicamento.id_PK)
+        .group_by(Medicamento.id_PK, Medicamento.stock_minimo, Medicamento.tipo_articulo)
     )
     if clinica_id is not None:
         stock_por_med = stock_por_med.filter(Medicamento.clinica_id_FK == clinica_id)
     filas = stock_por_med.all()
-    unidades = sum(int(s or 0) for _, s in filas)
-    stock_bajo = sum(1 for _, s in filas if int(s or 0) <= umbral_stock_bajo)
+    unidades = sum(int(s or 0) for _, s, _m, _t in filas)
+    # Cada artículo usa su stock mínimo; si no lo tiene, el umbral general. El equipo no se cuenta.
+    stock_bajo = sum(
+        1 for _, s, minimo, tipo_art in filas
+        if (tipo_art or "medicamento") != "equipo" and int(s or 0) <= ((minimo or 0) or umbral_stock_bajo)
+    )
 
     pend_q = db.query(Receta).join(Paciente, Receta.paciente_id_FK == Paciente.id_PK).filter(
         Receta.estado.in_([inv.ESTADO_RECETA_ACTIVA, inv.ESTADO_RECETA_PARCIAL])

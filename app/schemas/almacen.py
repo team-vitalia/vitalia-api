@@ -14,6 +14,9 @@ class MedicamentoResponse(BaseModel):
     descripcion: Optional[str] = None
     codigo_barras: Optional[str] = None
     categoria: Optional[str] = None
+    tipo_articulo: str = "medicamento"
+    unidad_medida: Optional[str] = None
+    stock_minimo: int = 0
 
     class Config:
         from_attributes = True
@@ -88,6 +91,8 @@ class CaducidadOut(BaseModel):
     inventario_id: int
     medicamento_id: int
     medicamento: Optional[str] = None
+    tipo_articulo: str = "medicamento"
+    unidad_medida: Optional[str] = None
     numero_lote: Optional[str] = None
     stock_actual: int
     ubicacion: Optional[str] = None
@@ -163,3 +168,20 @@ class PresentacionOut(PresentacionCreate):
     esta_activo: bool = True
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# 8. Consumo interno de insumos / material
+class ConsumoRequest(BaseModel):
+    medicamento_id: int
+    cantidad: int = Field(gt=0)
+    # Área o motivo (consultorio, curaciones, esterilización...). Queda en la auditoría.
+    area: Optional[str] = Field(default=None, max_length=100)
+    motivo: Optional[str] = Field(default=None, max_length=200)
+
+
+class ConsumoResponse(BaseModel):
+    medicamento: Optional[str] = None
+    tipo_articulo: str = "medicamento"
+    cantidad: int
+    lotes: List[dict]
+    stock_restante: int

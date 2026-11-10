@@ -315,3 +315,46 @@ def dispensar_receta(
         if pendiente_item(it) > 0
     ]
     return {"dispensaciones": registros, "faltantes": faltantes, "estado_receta": receta.estado}
+
+
+# ---------------------------------------------------------------- consumo interno
+TIPO_CONSUMO = "Consumo"
+
+
+def consumir_fefo(
+    db: Session,
+    medicamento_id: int,
+    cantidad: int,
+    tipo_nombre: str,
+    usuario_id: int | None,
+    referencia: int | None = None,
+) -> list[tuple[Inventario, int]]:
+    """Descuenta `cantidad` de un artículo tomando lotes FEFO (primero en vencer).
+
+    Sirve para uso interno de insumos (guantes, jeringas, alcohol...) y deja un
+    movimiento por lote. Devuelve [(lote, unidades_tomadas)]. El commit lo hace el llamador.
+    """
+    if cantidad <= 0:
+        raise InventarioError("La cantidad debe ser mayor a 0", 422)
+    stock = stock_disponible(db, medicamento_id)
+    if cantidad > stock:
+        raise InventarioError(f"Existencias insuficientes (hay {stock}, se piden {cantidad})", 409)
+
+    restante = cantidad
+    usados: list[tuple[Inventario, int]] = []
+    for lote in lotes_fefo(db, medicamento_id, bloquear=True):
+        if restante == 0:
+            break
+        tomar = min(restante, int(lote.stock_actual or 0))
+        if tomar <= 0:
+            continue
+        anterior = int(lote.stock_actual)
+        lote.stock_actual = anterior - tomar
+        registrar_movimiento(
+            db, lote, -tomar, tipo_nombre, usuario_id, anterior, lote.stock_actual, referencia=referencia
+        )
+        usados.append((lote, tomar))
+        restante -= tomar
+    if restante > 0:
+        raise InventarioError("Las existencias cambiaron durante el consumo; intenta de nuevo", 409)
+    return usados

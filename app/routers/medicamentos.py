@@ -23,6 +23,9 @@ def _serializar(med: Medicamento, stock: int) -> dict:
         "descripcion": med.descripcion,
         "codigo_barras": med.codigo_barras,
         "categoria": med.categoria,
+        "tipo_articulo": med.tipo_articulo or "medicamento",
+        "unidad_medida": med.unidad_medida,
+        "stock_minimo": med.stock_minimo or 0,
         "stock_actual": int(stock) if stock else 0,
     }
 
@@ -30,6 +33,7 @@ def _serializar(med: Medicamento, stock: int) -> dict:
 @router.get("/", response_model=list[MedicamentoResponse])
 def buscar_medicamentos(
     q: str | None = Query(None, description="Término de búsqueda por nombre"),
+    tipo: str | None = Query(None, description="medicamento | insumo | equipo (el doctor ve solo medicamentos)"),
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
@@ -44,6 +48,11 @@ def buscar_medicamentos(
 
     if usuario_actual.clinica_id_FK is not None:
         query = query.filter(Medicamento.clinica_id_FK == usuario_actual.clinica_id_FK)
+    # Los médicos solo recetan medicamentos; los insumos/equipo no aparecen en su buscador
+    if usuario_actual.rol_id_FK == ROL_DOCTOR and not tipo:
+        tipo = "medicamento"
+    if tipo:
+        query = query.filter(Medicamento.tipo_articulo == tipo)
     if q:
         query = query.filter(
             Medicamento.nombre.ilike(f"%{q}%") | Medicamento.principio_activo.ilike(f"%{q}%")
