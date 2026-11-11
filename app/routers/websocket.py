@@ -8,9 +8,11 @@ Ofrece:
 
 import datetime
 import logging
+import os
 from typing import Optional, Dict, Any
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect, HTTPException
+import resend
 
 from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
@@ -181,19 +183,16 @@ class EmailPruebaRequest(BaseModel):
 
 
 @router.post("/email-prueba")
-async def email_prueba(
-    datos: EmailPruebaRequest,
-    usuario_actual: Usuario = Depends(get_current_user),
-):
-    if usuario_actual.rol_id_FK != 1:
-        raise HTTPException(status_code=403, detail="Solo el administrador puede usar los endpoints de prueba")
-    exito = await enviar_correo(
-        destinatario=datos.destinatario,
-        asunto=datos.asunto,
-        cuerpo_html=f"<p>{datos.mensaje}</p>",
-        cuerpo_texto=datos.mensaje
-    )
-    if not exito:
-        raise HTTPException(status_code=500, detail="Error al enviar el correo")
-    return {"ok": True, "destinatario": datos.destinatario}
-
+async def email_prueba(datos: EmailPruebaRequest):
+    resend.api_key = os.environ.get("RESEND_API_KEY")
+    try:
+        respuesta = resend.Emails.send({
+            "from": "notificaciones@vitalia.software",
+            "to": [datos.destinatario],
+            "subject": datos.asunto,
+            "html": f"<p>{datos.mensaje}</p>",
+            "text": datos.mensaje,
+        })
+        return {"ok": True, "destinatario": datos.destinatario}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -1,77 +1,37 @@
 import asyncio
 import logging
 import os
-import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from dotenv import load_dotenv
+import resend
 
 logger = logging.getLogger("vitalia.email_service")
 
-def obtener_configuracion_smtp():
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    env_path = os.path.join(base_dir, ".env")
-    if os.path.exists(env_path):
-        load_dotenv(env_path, override=False)
-    else:
-        load_dotenv(override=False)
-    host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
-    port = int(os.getenv("SMTP_PORT", "587"))
-    user = os.getenv("SMTP_USER", os.getenv("SMTP_EMAIL", "")).strip()
-    raw_pass = os.getenv("SMTP_PASSWORD", os.getenv("SMTP_PASS", "")).strip()
-    password = raw_pass.replace(" ", "") if host == "smtp.gmail.com" else raw_pass
-    from_addr = os.getenv("SMTP_FROM", user or "vitaliaorg98@gmail.com").strip()
-    return {
-        "host": host,
-        "port": port,
-        "user": user,
-        "password": password,
-        "from_addr": from_addr,
-    }
 
 def enviar_correo_sincrono(destinatario: str, asunto: str, cuerpo_html: str, cuerpo_texto: str = "") -> bool:
     if not destinatario or "@" not in destinatario:
         return False
 
-    config = obtener_configuracion_smtp()
-    if not config["user"] or not config["password"]:
-        logger.warning(f"No se enviará correo a {destinatario}: SMTP_USER o SMTP_PASSWORD no están configurados en el archivo .env.")
+    resend.api_key = os.environ.get("RESEND_API_KEY")
+    if not resend.api_key:
+        logger.warning(f"No se enviará correo a {destinatario}: RESEND_API_KEY no está configurada.")
         return False
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = asunto
-    msg["From"] = config["from_addr"]
-    msg["To"] = destinatario
-
+    params = {
+        "from": "notificaciones@vitalia.software",
+        "to": [destinatario],
+        "subject": asunto,
+        "html": cuerpo_html,
+    }
     if cuerpo_texto:
-        msg.attach(MIMEText(cuerpo_texto, "plain", "utf-8"))
-    msg.attach(MIMEText(cuerpo_html, "html", "utf-8"))
+        params["text"] = cuerpo_texto
 
-    server = None
     try:
-        server = smtplib.SMTP(config["host"], config["port"], timeout=12)
-        server.ehlo()
-        server.starttls()
-        server.ehlo()
-        server.login(config["user"], config["password"])
-        server.sendmail(config["from_addr"], [destinatario], msg.as_string())
+        resend.Emails.send(params)
         logger.info(f"Correo enviado correctamente a {destinatario} con asunto: {asunto}")
         return True
-    except smtplib.SMTPAuthenticationError as auth_err:
-        logger.warning(f"Error de autenticación SMTP al enviar a {destinatario}: Verifique que SMTP_USER sea correcto y que SMTP_PASSWORD sea una Contraseña de Aplicación de Google válida. Detalle: {auth_err}")
-        return False
-    except smtplib.SMTPServerDisconnected as disc_err:
-        logger.warning(f"Error de conexión SMTP con {config['host']}: La conexión se cerró inesperadamente. En Gmail esto sucede cuando el usuario o la contraseña de aplicación de 16 caracteres son incorrectos o fueron revocados en Google. Detalle: {disc_err}")
-        return False
     except Exception as error:
-        logger.warning(f"No fue posible enviar correo SMTP a {destinatario}: {error}")
+        logger.warning(f"No fue posible enviar correo a {destinatario}: {error}")
         return False
-    finally:
-        if server:
-            try:
-                server.quit()
-            except Exception:
-                pass
+
 
 async def enviar_correo(destinatario: str, asunto: str, cuerpo_html: str, cuerpo_texto: str = "") -> bool:
     return await asyncio.to_thread(
@@ -81,6 +41,7 @@ async def enviar_correo(destinatario: str, asunto: str, cuerpo_html: str, cuerpo
         cuerpo_html,
         cuerpo_texto,
     )
+
 
 def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: str, color_badge_txt: str, filas_detalle: list[tuple[str, str]], mensaje_adicional: str, mostrar_recomendacion: bool = True) -> str:
     detalles_html = ""
@@ -92,7 +53,6 @@ def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: 
         </tr>
         """
 
-    # Solo los correos de citas incluyen la recomendación de llegada a la clínica.
     recomendacion_html = """<div style="background-color: rgb(231, 245, 242); border-left: 4px solid rgb(36, 127, 118); padding: 14px 16px; border-radius: 0 10px 10px 0; margin-bottom: 26px;">
                     <div style="font-size: 13px; font-weight: 700; color: rgb(23, 104, 95); margin-bottom: 3px;">Recomendación de llegada</div>
                     <div style="font-size: 12px; color: rgb(63, 100, 94); line-height: 1.5;">
@@ -147,6 +107,7 @@ def construir_plantilla_base(titulo: str, subtitulo_badge: str, color_badge_bg: 
 </html>
 """
 
+
 def generar_html_cita_agendada(paciente_nombre: str, doctor_nombre: str, fecha: str, hora_inicio: str, hora_fin: str, motivo: str) -> str:
     filas = [
         ("Paciente", paciente_nombre),
@@ -163,6 +124,7 @@ def generar_html_cita_agendada(paciente_nombre: str, doctor_nombre: str, fecha: 
         filas_detalle=filas,
         mensaje_adicional=f"Hola {paciente_nombre}, tu cita médica ha sido registrada con éxito en nuestro sistema de atención clínica. A continuación encontrarás los detalles de tu consulta:"
     )
+
 
 def html_enlace_recuperacion(nombre: str, enlace: str) -> str:
     enlace_html = (enlace.replace("&", "&amp;").replace('"', "&quot;")
@@ -201,6 +163,7 @@ def generar_html_cita_reprogramada(paciente_nombre: str, doctor_nombre: str, nue
         mensaje_adicional=f"Hola {paciente_nombre}, te informamos que el horario de tu cita médica ha sido modificado. Por favor revisa la nueva fecha y hora asignadas:"
     )
 
+
 def generar_html_recordatorio_cita(paciente_nombre: str, doctor_nombre: str, fecha: str, hora: str, intervalo_texto: str, motivo: str) -> str:
     filas = [
         ("Paciente", paciente_nombre),
@@ -219,6 +182,7 @@ def generar_html_recordatorio_cita(paciente_nombre: str, doctor_nombre: str, fec
         mensaje_adicional=f"Hola {paciente_nombre}, te recordamos que tienes una cita médica programada próximamente en VITALIA. Agradecemos tu puntualidad:"
     )
 
+
 async def notificar_correo_cita_creada(destinatario: str, paciente_nombre: str, doctor_nombre: str, fecha: str, hora_inicio: str, hora_fin: str, motivo: str):
     if not destinatario:
         return
@@ -227,6 +191,7 @@ async def notificar_correo_cita_creada(destinatario: str, paciente_nombre: str, 
     texto = f"Cita Confirmada para {paciente_nombre} con Dr./Dra. {doctor_nombre} el día {fecha} de {hora_inicio} a {hora_fin}."
     await enviar_correo(destinatario, asunto, html, texto)
 
+
 async def notificar_correo_cita_reprogramada(destinatario: str, paciente_nombre: str, doctor_nombre: str, nueva_fecha: str, nueva_hora_inicio: str, nueva_hora_fin: str, motivo: str):
     if not destinatario:
         return
@@ -234,6 +199,7 @@ async def notificar_correo_cita_reprogramada(destinatario: str, paciente_nombre:
     html = generar_html_cita_reprogramada(paciente_nombre, doctor_nombre, nueva_fecha, nueva_hora_inicio, nueva_hora_fin, motivo)
     texto = f"Cita Reprogramada para {paciente_nombre} con Dr./Dra. {doctor_nombre}. Nueva fecha: {nueva_fecha} de {nueva_hora_inicio} a {nueva_hora_fin}."
     await enviar_correo(destinatario, asunto, html, texto)
+
 
 async def notificar_correo_recordatorio(destinatario: str, paciente_nombre: str, doctor_nombre: str, fecha: str, hora: str, intervalo_texto: str, motivo: str):
     if not destinatario:
