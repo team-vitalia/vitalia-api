@@ -236,7 +236,7 @@ def enviar_correo_bienvenida_admin(
     destinatario: str,
     nombre_admin: str,
     nombre_clinica: str,
-    url_pwa: str = "http://localhost:8081"
+    url_pwa: str = "https://app.vitalia.software"
 ) -> bool:
     if not destinatario:
         return False
@@ -253,7 +253,7 @@ def generar_html_confirmacion_pago(
     precio_mensual: float,
     subscription_id: str,
     es_upgrade: bool = False,
-    url_pwa: str = "http://localhost:8081",
+    url_pwa: str = "https://app.vitalia.software",
 ) -> str:
     titulo = "Tu plan ha sido activado correctamente" if es_upgrade else "¡Bienvenido(a) a VITALIA SaaS!"
     subtitulo_badge = "Plan Actualizado" if es_upgrade else "Suscripción Activada"
@@ -311,7 +311,7 @@ def enviar_correo_confirmacion_pago(
     precio_mensual: float,
     subscription_id: str,
     es_upgrade: bool = False,
-    url_pwa: str = "http://localhost:8081",
+    url_pwa: str = "https://app.vitalia.software",
 ) -> bool:
     if not destinatario:
         return False
@@ -368,7 +368,7 @@ async def notificar_correo_confirmacion_pago(
     precio_mensual: float,
     subscription_id: str,
     es_upgrade: bool = False,
-    url_pwa: str = "http://localhost:8081",
+    url_pwa: str = "https://app.vitalia.software",
 ) -> bool:
     return await asyncio.to_thread(
         enviar_correo_confirmacion_pago,
