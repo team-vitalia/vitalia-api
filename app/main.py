@@ -64,6 +64,9 @@ origenes_cors = [
     "http://127.0.0.1:19006",
     "https://landing-ten-sigma-42.vercel.app",
     "https://vitalia-app-fowe.vercel.app",
+    "https://vitalia.software",
+    "https://app.vitalia.software",
+    "https://admin.vitalia.software",
 ]
 
 cors_env = os.getenv("CORS_ORIGINS", "")
@@ -76,7 +79,7 @@ if cors_env:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origenes_cors,
-    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.vitalia\.software|https://vitalia\.software",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

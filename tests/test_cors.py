@@ -37,3 +37,27 @@ def test_cors_preflight_vercel_preview_regex():
     response = client.options("/api/suscripciones/pre-registro", headers=headers)
     assert response.status_code == 200
     assert response.headers.get("access-control-allow-origin") == "https://landing-preview-git-feature.vercel.app"
+
+
+def test_cors_preflight_admin_vitalia():
+    headers = {
+        "Origin": "https://admin.vitalia.software",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "content-type",
+    }
+    response = client.options("/api/auth/login", headers=headers)
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "https://admin.vitalia.software"
+    assert response.headers.get("access-control-allow-credentials") == "true"
+
+
+def test_cors_preflight_vitalia_subdomain_regex():
+    headers = {
+        "Origin": "https://app.vitalia.software",
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "authorization",
+    }
+    response = client.options("/api/auth/me", headers=headers)
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "https://app.vitalia.software"
+    assert response.headers.get("access-control-allow-credentials") == "true"
