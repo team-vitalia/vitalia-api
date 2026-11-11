@@ -87,9 +87,21 @@ class Usuario(Base):
 
     @property
     def is_superadmin(self) -> bool:
-        if self.rol_id_FK == 1:
-            return True
         if self.rol and self.rol.nombre:
             nombre = self.rol.nombre.strip().lower()
-            return nombre in ["superadmin", "super admin", "administrador", "admin"]
+            if nombre in ["superadmin", "super admin"]:
+                return True
+        if self.correo_electronico:
+            correo = self.correo_electronico.strip().lower()
+            es_dominio_superadmin = (
+                correo.endswith("@vitalia.com")
+                or correo.endswith("@vitalia.software")
+                or correo.startswith("superadmin@")
+            )
+            if es_dominio_superadmin:
+                if self.rol_id_FK == 1:
+                    return True
+                if self.rol and self.rol.nombre:
+                    nombre = self.rol.nombre.strip().lower()
+                    return nombre in ["superadmin", "super admin", "administrador", "admin"]
         return False

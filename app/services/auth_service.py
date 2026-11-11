@@ -20,16 +20,7 @@ class ClinicaSuspendida(Exception):
 
 
 def es_superadmin_plataforma(usuario: Usuario) -> bool:
-    if usuario.rol and usuario.rol.nombre:
-        nombre_rol = usuario.rol.nombre.strip().lower()
-        if nombre_rol in ["superadmin", "super admin"]:
-            return True
-    if usuario.correo_electronico:
-        correo = usuario.correo_electronico.strip().lower()
-        if correo.startswith("superadmin") or correo.endswith("@vitalia.com"):
-            if usuario.rol_id_FK == 1 or (usuario.rol and usuario.rol.nombre.strip().lower() in ["superadmin", "super admin", "administrador", "admin"]):
-                return True
-    return False
+    return bool(usuario.is_superadmin)
 
 
 def autenticar_usuario(

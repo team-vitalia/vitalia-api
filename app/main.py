@@ -204,4 +204,5 @@ def obtener_usuario_actual(
         "rol_id": usuario.rol_id_FK,
         "estado": usuario.estado,
         "clinica": clinica_data,
+        "is_superadmin": bool(usuario.is_superadmin),
     }

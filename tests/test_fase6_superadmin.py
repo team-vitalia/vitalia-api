@@ -93,6 +93,36 @@ def test_superadmin_deniega_acceso_a_usuarios_no_autorizados(sesion_db: Session,
         app.dependency_overrides.pop(get_current_user, None)
 
 
+def test_administrador_clinica_no_puede_acceder_a_superadmin(sesion_db: Session, cliente: TestClient):
+    clinica_demo = sesion_db.query(Clinica).first()
+    admin_clinica = Usuario(
+        clinica_id_FK=clinica_demo.id_PK,
+        nombre="Admin Clinica",
+        correo_electronico="admin@clinicaexterna.com",
+        hash_contrasena=generar_hash_password("PasswordSegura123!"),
+        rol_id_FK=1,
+        estado="activo",
+    )
+    sesion_db.add(admin_clinica)
+    sesion_db.commit()
+    sesion_db.refresh(admin_clinica)
+
+    assert admin_clinica.is_superadmin is False
+
+    app.dependency_overrides[get_current_user] = lambda: admin_clinica
+
+    try:
+        respuesta_me = cliente.get("/api/auth/me")
+        assert respuesta_me.status_code == 200
+        assert respuesta_me.json()["is_superadmin"] is False
+
+        respuesta = cliente.get("/api/superadmin/clinicas")
+        assert respuesta.status_code == 403
+        assert "Acceso denegado" in respuesta.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
 def test_listar_clinicas_superadmin(sesion_db: Session, cliente: TestClient):
     """Verifica que el superadmin puede obtener el listado completo de clinicas con sus planes y administradores."""
     clinica_demo = sesion_db.query(Clinica).first()
