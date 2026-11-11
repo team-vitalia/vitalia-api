@@ -41,9 +41,15 @@ class Usuario(Base):
         nullable=False
     )
 
-    hash_contrasena: Mapped[str] = mapped_column(
+    hash_contrasena: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False
+        nullable=True
+    )
+
+    auth_provider: Mapped[str | None] = mapped_column(
+        String(50),
+        default="manual",
+        nullable=True
     )
 
     rol_id_FK: Mapped[int | None] = mapped_column(

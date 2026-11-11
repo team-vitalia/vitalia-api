@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime
 import logging
 
@@ -39,8 +40,15 @@ def preregistro_clinica(
     nombre_admin = datos.nombre_admin.strip()
     correo = datos.correo.strip().lower()
     paypal_plan_id = datos.paypal_plan_id.strip()
+    es_google = (datos.auth_provider == "google")
 
-    if not nombre_clinica or not nombre_admin or not correo or not datos.password:
+    if not nombre_clinica or not nombre_admin or not correo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Todos los campos son obligatorios",
+        )
+
+    if not es_google and not datos.password:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Todos los campos son obligatorios",
@@ -63,11 +71,12 @@ def preregistro_clinica(
 
         if usuario_existente:
             if usuario_existente.estado == "activo" or (usuario_existente.clinica and usuario_existente.clinica.activa):
-                if not verificar_password(datos.password, usuario_existente.hash_contrasena):
-                    raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="El correo ya está registrado en VITALIA. Ingresa la contraseña correcta de tu cuenta para actualizar el plan de tu clínica.",
-                    )
+                if not es_google:
+                    if not verificar_password(datos.password, usuario_existente.hash_contrasena):
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail="El correo ya está registrado en VITALIA. Ingresa la contraseña correcta de tu cuenta para actualizar el plan de tu clínica.",
+                        )
 
                 clinica = usuario_existente.clinica
                 if clinica:
@@ -85,6 +94,9 @@ def preregistro_clinica(
                     db.add(clinica)
                     db.flush()
                     usuario_existente.clinica_id_FK = clinica.id_PK
+
+                if es_google:
+                    usuario_existente.auth_provider = "google"
 
                 db.commit()
                 db.refresh(clinica)
@@ -111,7 +123,10 @@ def preregistro_clinica(
                 usuario_existente.clinica_id_FK = clinica.id_PK
 
             usuario_existente.nombre = nombre_admin
-            usuario_existente.hash_contrasena = generar_hash_password(datos.password)
+            if datos.password:
+                usuario_existente.hash_contrasena = generar_hash_password(datos.password)
+            if es_google:
+                usuario_existente.auth_provider = "google"
             usuario_existente.estado = "inactivo"
 
             db.commit()
@@ -149,7 +164,8 @@ def preregistro_clinica(
             clinica_id_FK=clinica.id_PK,
             nombre=nombre_admin,
             correo_electronico=correo,
-            hash_contrasena=generar_hash_password(datos.password),
+            hash_contrasena=generar_hash_password(datos.password) if datos.password else None,
+            auth_provider="google" if es_google else "manual",
             rol_id_FK=rol_id,
             estado="inactivo",
         )
@@ -180,14 +196,19 @@ async def confirmar_suscripcion(
     db: Session = Depends(get_db),
 ):
     clinica = None
+    es_upgrade = bool(datos.es_upgrade or datos.modo == "upgrade")
 
     if datos.clinica_id and datos.clinica_id > 0:
         clinica = db.query(Clinica).filter(Clinica.id_PK == datos.clinica_id).first()
+        if clinica and clinica.activa and clinica.plan_id_FK:
+            es_upgrade = True
 
     if not clinica and datos.correo:
         user = db.query(Usuario).filter(Usuario.correo_electronico == str(datos.correo).strip().lower()).first()
         if user and user.clinica:
             clinica = user.clinica
+            if clinica.activa and clinica.plan_id_FK:
+                es_upgrade = True
         elif user and not user.clinica:
             clinica = Clinica(
                 nombre_comercial=datos.nombre_clinica or "Clínica VITALIA",
@@ -263,6 +284,27 @@ async def confirmar_suscripcion(
     db.refresh(clinica)
 
     nombre_plan_actual = clinica.plan.nombre if clinica.plan else None
+    precio_mensual_actual = float(clinica.plan.precio_mensual) if clinica.plan and clinica.plan.precio_mensual else 1199.0
+    correo_destino = datos.correo or (admin.correo_electronico if admin else None)
+    nombre_admin_efectivo = datos.nombre_admin or (admin.nombre if admin else "Administrador")
+    nombre_clinica_efectivo = clinica.nombre_comercial or datos.nombre_clinica or "Clínica VITALIA"
+
+    if correo_destino:
+        try:
+            from app.services.email_service import notificar_correo_confirmacion_pago
+            asyncio.create_task(
+                notificar_correo_confirmacion_pago(
+                    destinatario=str(correo_destino).strip().lower(),
+                    nombre_admin=nombre_admin_efectivo,
+                    nombre_clinica=nombre_clinica_efectivo,
+                    nombre_plan=nombre_plan_actual or "Clínica",
+                    precio_mensual=precio_mensual_actual,
+                    subscription_id=datos.subscription_id.strip(),
+                    es_upgrade=es_upgrade,
+                )
+            )
+        except Exception as e:
+            logger.warning(f"Error al programar envío de correo de confirmación: {e}")
 
     evento_ws = {
         "type": "plan_actualizado",

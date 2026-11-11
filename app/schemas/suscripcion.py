@@ -7,8 +7,10 @@ class PreRegistroRequest(BaseModel):
     nombre_clinica: str
     nombre_admin: str
     correo: EmailStr
-    password: str
+    password: str | None = None
     paypal_plan_id: str
+    auth_provider: str | None = "manual"
+    google_token: str | None = None
 
 
 class PreRegistroResponse(BaseModel):
@@ -27,6 +29,8 @@ class ConfirmarSuscripcionRequest(BaseModel):
     correo: str | None = None
     nombre_clinica: str | None = None
     nombre_admin: str | None = None
+    modo: str | None = None
+    es_upgrade: bool | None = False
 
 
 class ConfirmarSuscripcionResponse(BaseModel):

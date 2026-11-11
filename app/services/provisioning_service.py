@@ -186,10 +186,15 @@ def aprovisionar_tenant_paypal(db: Session, payload: dict) -> ResultadoAprovisio
 
                     if admin_user and admin_user.correo_electronico:
                         try:
-                            enviar_correo_bienvenida_admin(
+                            from app.services.email_service import enviar_correo_confirmacion_pago
+                            enviar_correo_confirmacion_pago(
                                 destinatario=admin_user.correo_electronico,
                                 nombre_admin=admin_user.nombre,
                                 nombre_clinica=clinica_preregistrada.nombre_comercial,
+                                nombre_plan=clinica_preregistrada.plan.nombre if clinica_preregistrada.plan else "Clínica",
+                                precio_mensual=float(clinica_preregistrada.plan.precio_mensual) if clinica_preregistrada.plan and clinica_preregistrada.plan.precio_mensual else 1199.0,
+                                subscription_id=subscription_id,
+                                es_upgrade=False,
                             )
                         except Exception:
                             pass
@@ -225,6 +230,20 @@ def aprovisionar_tenant_paypal(db: Session, payload: dict) -> ResultadoAprovisio
             db.refresh(clinica_existente)
             if usuario_admin:
                 db.refresh(usuario_admin)
+            if usuario_admin and usuario_admin.correo_electronico:
+                try:
+                    from app.services.email_service import enviar_correo_confirmacion_pago
+                    enviar_correo_confirmacion_pago(
+                        destinatario=usuario_admin.correo_electronico,
+                        nombre_admin=usuario_admin.nombre,
+                        nombre_clinica=clinica_existente.nombre_comercial,
+                        nombre_plan=plan.nombre if plan else "Clínica",
+                        precio_mensual=float(plan.precio_mensual) if plan and plan.precio_mensual else 1199.0,
+                        subscription_id=subscription_id,
+                        es_upgrade=True,
+                    )
+                except Exception:
+                    pass
             return ResultadoAprovisionamiento(clinica_existente, usuario_admin, "")
 
         clinica = Clinica(
@@ -283,10 +302,15 @@ def aprovisionar_tenant_paypal(db: Session, payload: dict) -> ResultadoAprovisio
         db.refresh(usuario)
 
         try:
-            enviar_correo_bienvenida_admin(
+            from app.services.email_service import enviar_correo_confirmacion_pago
+            enviar_correo_confirmacion_pago(
                 destinatario=usuario.correo_electronico,
                 nombre_admin=usuario.nombre,
                 nombre_clinica=clinica.nombre_comercial,
+                nombre_plan=plan.nombre if plan else "Clínica",
+                precio_mensual=float(plan.precio_mensual) if plan and plan.precio_mensual else 1199.0,
+                subscription_id=subscription_id,
+                es_upgrade=False,
             )
         except Exception:
             pass

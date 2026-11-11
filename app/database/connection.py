@@ -21,6 +21,7 @@ DATABASE_URL = f"mysql+pymysql://{USER_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
 engine = create_engine(
     DATABASE_URL,
+    connect_args={"connect_timeout": 5},
     echo=False
 )
 

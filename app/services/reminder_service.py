@@ -159,13 +159,14 @@ async def ciclo_recordatorios_background(intervalo_segundos: int = 60):
     logger.info("Servicio de recordatorios automáticos de citas iniciado en segundo plano.")
 
     while _tarea_recordatorios_activa:
-        db = SessionLocal()
         try:
-            await verificar_y_emitir_recordatorios(db)
+            db = SessionLocal()
+            try:
+                await verificar_y_emitir_recordatorios(db)
+            finally:
+                db.close()
         except Exception as e:
             logger.error(f"Error en el ciclo de recordatorios de citas: {e}")
-        finally:
-            db.close()
 
         await asyncio.sleep(intervalo_segundos)
 

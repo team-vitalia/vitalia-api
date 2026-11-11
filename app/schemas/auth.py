@@ -9,3 +9,9 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
+
+
+class GoogleLoginRequest(BaseModel):
+    token: str | None = None
+    id_token: str | None = None
+    access_token: str | None = None
