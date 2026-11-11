@@ -32,7 +32,6 @@ SELENIUM = [
 collect_ignore = SELENIUM if EN_CI else []
 
 REQUIERE_ENTORNO_EXTERNO = {
-    "tests/test_pr007_envio_correo.py": "necesita la API levantada en 127.0.0.1:8000",
     "tests/test_registro_cita.py": "necesita usuarios sembrados en la base (recepcion@gmail.com, doctor@gmail.com)",
 }
 
