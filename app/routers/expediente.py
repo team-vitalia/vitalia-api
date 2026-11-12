@@ -122,16 +122,26 @@ def _armar(db: Session, paciente: Paciente, *, vista_paciente: bool) -> dict:
             }
             for c in consultas
         ],
+        # 👇 AQUÍ ESTÁ EL CAMBIO: Ahora devuelve "items" con el detalle completo 👇
         "recetas": [
             {
                 "id_PK": r.id_PK,
                 "estado": r.estado,
                 "creado_en": r.creado_en,
                 "doctor": r.doctor.nombre if r.doctor else None,
-                "medicamentos": [
-                    it.medicamento.nombre
+                "items": [
+                    {
+                        "id_PK": it.id_PK,
+                        "medicamento": it.medicamento.nombre if it.medicamento else None,
+                        "presentacion": it.medicamento.presentacion if it.medicamento else None,
+                        "dosis": it.dosis,
+                        "frecuencia": it.frecuencia,
+                        "duracion": it.duracion,
+                        "cantidad": it.cantidad,
+                        "instrucciones": it.instrucciones,
+                        "via_administracion": it.via_administracion,
+                    }
                     for it in db.query(ItemReceta).filter(ItemReceta.receta_id_FK == r.id_PK).all()
-                    if it.medicamento
                 ],
             }
             for r in recetas
