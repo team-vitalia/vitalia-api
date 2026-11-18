@@ -35,5 +35,14 @@ class Settings:
         "openai/gpt-oss-120b"
     )
 
+    # --- Firma electrónica SIMULADA (uso académico, sin validez jurídica) ---
+    # URL pública de ESTA API tal como la alcanzará quien escanee el QR desde otro
+    # dispositivo (p. ej. http://192.168.100.14:8000). Si se deja vacía se usa la URL
+    # con la que el médico llamó a la API al firmar (que puede ser localhost).
+    PUBLIC_API_URL: str = os.getenv("PUBLIC_API_URL", "").rstrip("/")
+    # Frase con la que se cifran las llaves privadas ficticias en la base de datos.
+    # Si no se define, se deriva de SECRET_KEY.
+    FIRMA_SIM_CLAVE: str = os.getenv("FIRMA_SIM_CLAVE", "")
+
 
 settings = Settings()

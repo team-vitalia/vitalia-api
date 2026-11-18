@@ -43,6 +43,8 @@ from app.routers.expediente import router as expediente_router
 from app.routers.lista_espera import router as lista_espera_router
 from app.routers.transferencias import router as transferencias_router
 from app.routers.analitica_almacen import router as analitica_almacen_router
+from app.routers.firma_recetas import router as firma_recetas_router
+from app.routers.verificacion_receta import router as verificacion_receta_router
 from app.routers.suscripciones import router as suscripciones_router
 from app.routers.superadmin import router as superadmin_router
 
@@ -118,6 +120,8 @@ app.include_router(expediente_router)
 app.include_router(lista_espera_router)
 app.include_router(transferencias_router)
 app.include_router(analitica_almacen_router)
+app.include_router(firma_recetas_router)
+app.include_router(verificacion_receta_router)  # público: destino del QR
 app.add_api_route("/email-prueba", email_prueba, methods=["POST"])
 
 

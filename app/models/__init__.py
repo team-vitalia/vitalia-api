@@ -38,3 +38,6 @@ from app.models.presentacion_medicamento import PresentacionMedicamento
 from app.models.dispensacion import Dispensacion
 from app.models.lista_espera import ListaEspera
 from app.models.transferencia_paciente import TransferenciaPaciente
+from app.models.identidad_firma_simulada import IdentidadFirmaSimulada
+from app.models.firma_receta import FirmaReceta
+from app.models.historial_firma_receta import HistorialFirmaReceta
