@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, verificar_modulo_almacen
 from app.core.roles import (
     ROL_ADMIN,
     ROL_ALMACEN,
@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/almacen/analitica",
     tags=["Analítica de almacén e IA"],
+    dependencies=[Depends(verificar_modulo_almacen)],
 )
 
 ROLES = [ROL_ADMIN, ROL_ALMACEN, ROL_COORDINADOR]

@@ -142,3 +142,29 @@ class MetricasClinicaIndividualOut(BaseModel):
     administradores: list[AdministradorClinicaOut] = []
     ultimos_accesos: list[AuditoriaAccesoOut] = []
     actividades_recientes: list[AuditoriaActividadOut] = []
+
+
+class CancelacionItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    clinica_id: int
+    nombre_clinica: str
+    plan_anterior_id: int
+    nombre_plan_anterior: str
+    fecha_cancelacion: datetime
+    motivo_categoria: str
+    comentarios_adicionales: str | None = None
+    aplica_reembolso: bool
+    estado_reembolso: str
+    paypal_refund_id: str | None = None
+
+
+class CancelacionesSuperadminOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    total_cancelaciones: int
+    total_reembolsos_procesados: int
+    motivos_conteo: dict[str, int]
+    estados_reembolso_conteo: dict[str, int]
+    cancelaciones: list[CancelacionItemOut]

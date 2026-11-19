@@ -199,6 +199,26 @@ def sesion_db():
             incluye_contratos=True,
             paypal_plan_id="P-3BM73023B1884583RNLXJOSQ",
         ),
+        PlanSuscripcion(
+            id_PK=5,
+            nombre="Gratuito",
+            precio_mensual=0.0,
+            precio_anual=0.0,
+            limite_personal=1,
+            limite_pacientes=20,
+            limite_pacientes_mes=20,
+            incluye_calendar=False,
+            incluye_correos=False,
+            limite_ia_mensual=0,
+            limite_sucursales=1,
+            incluye_contratos=False,
+            incluye_salas=False,
+            incluye_almacen=False,
+            incluye_reportes=False,
+            incluye_auditoria=False,
+            incluye_roles=False,
+            paypal_plan_id=None,
+        ),
     ]
     sesion.add_all(planes)
     sesion.commit()

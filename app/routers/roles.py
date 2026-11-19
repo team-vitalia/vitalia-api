@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, verificar_gestion_personal
 from app.database.connection import get_db
 from app.models.role import Role
 from app.models.usuario import Usuario
@@ -11,7 +11,8 @@ from app.schemas.role import RoleActualizar, RoleCrear
 
 router = APIRouter(
     prefix="/api/roles",
-    tags=["Roles"]
+    tags=["Roles"],
+    dependencies=[Depends(verificar_gestion_personal)],
 )
 
 

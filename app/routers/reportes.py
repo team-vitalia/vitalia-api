@@ -5,13 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import require_enterprise_plan, require_roles
+from app.core.dependencies import require_enterprise_plan, require_roles, verificar_modulo_reportes
 from app.database.connection import get_db
 from app.models.usuario import Usuario
 from app.services import ai_reports_service, reporte_export
 from app.services.reporte_service import ReporteService
 
-router = APIRouter(prefix="/api/reportes", tags=["Reportes"])
+router = APIRouter(
+    prefix="/api/reportes",
+    tags=["Reportes"],
+    dependencies=[Depends(verificar_modulo_reportes)],
+)
 
 ROLES_REPORTES = ["Administrador", "Coordinador"]
 

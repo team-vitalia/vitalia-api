@@ -5,13 +5,17 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.core.dependencies import require_roles
+from app.core.dependencies import require_roles, verificar_modulo_auditoria
 from app.models.usuario import Usuario
 from app.schemas.auditoria import AuditoriaOut
 from app.schemas.common import PageResponse, PageMeta
 from app.services.auditoria_service import AuditoriaService
 
-router = APIRouter(prefix="/api/auditoria", tags=["Auditoría"])
+router = APIRouter(
+    prefix="/api/auditoria",
+    tags=["Auditoría"],
+    dependencies=[Depends(verificar_modulo_auditoria)],
+)
 
 
 @router.get("", response_model=PageResponse[AuditoriaOut])

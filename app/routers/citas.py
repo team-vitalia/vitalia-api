@@ -49,7 +49,25 @@ router = APIRouter(
     tags=["Citas"]
 )
 
-def verificar_permiso_recepcion(usuario_actual: Usuario):
+def verificar_permiso_recepcion(usuario_actual: Usuario, db: Session | None = None):
+    es_gratuito = False
+    clinica_obj = getattr(usuario_actual, "clinica", None)
+    if clinica_obj and getattr(clinica_obj, "plan", None):
+        es_gratuito = (clinica_obj.plan.nombre or "").lower().strip() == "gratuito"
+    elif getattr(usuario_actual, "clinica_id_FK", None) and db is not None:
+        from app.models.clinica import Clinica
+        from app.models.plan_suscripcion import PlanSuscripcion
+        plan_nombre = (
+            db.query(PlanSuscripcion.nombre)
+            .join(Clinica, Clinica.plan_id_FK == PlanSuscripcion.id_PK)
+            .filter(Clinica.id_PK == usuario_actual.clinica_id_FK)
+            .scalar()
+        )
+        es_gratuito = (plan_nombre or "").lower().strip() == "gratuito"
+
+    if usuario_actual.rol_id_FK == 2 and es_gratuito:
+        return
+
     if usuario_actual.rol_id_FK not in [1, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -254,7 +272,7 @@ def obtener_citas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    verificar_permiso_recepcion(usuario_actual)
+    verificar_permiso_recepcion(usuario_actual, db)
 
     query = db.query(Cita)
     clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
@@ -347,7 +365,7 @@ async def crear_cita(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    verificar_permiso_recepcion(usuario_actual)
+    verificar_permiso_recepcion(usuario_actual, db)
 
     paciente = (
         db.query(Paciente)
@@ -361,17 +379,27 @@ async def crear_cita(
             detail="El paciente no existe"
         )
 
-    doctor = (
-        db.query(Doctor)
-        .filter(Doctor.id_PK == datos.doctor_id_FK)
-        .first()
-    )
-
-    if not doctor:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El doctor no existe"
+    if usuario_actual.rol_id_FK == 2:
+        doctor_actual = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+        if not doctor_actual:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No tienes un perfil de doctor registrado"
+            )
+        doctor = doctor_actual
+        datos.doctor_id_FK = doctor_actual.id_PK
+    else:
+        doctor = (
+            db.query(Doctor)
+            .filter(Doctor.id_PK == datos.doctor_id_FK)
+            .first()
         )
+
+        if not doctor:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El doctor no existe"
+            )
 
     accion_equipo = validar_sala_equipo(
         db, doctor.id_PK, datos.fecha, datos.hora_inicio, datos.hora_fin,
@@ -564,7 +592,7 @@ async def reprogramar_cita(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    verificar_permiso_recepcion(usuario_actual)
+    verificar_permiso_recepcion(usuario_actual, db)
 
     cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
     if not cita:
@@ -576,6 +604,10 @@ async def reprogramar_cita(
     clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
     if clinica_id is not None and cita.clinica_id_FK != clinica_id:
         raise HTTPException(status_code=403, detail="No tienes permiso sobre esta cita")
+    if usuario_actual.rol_id_FK == 2:
+        doctor_actual = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+        if not doctor_actual or cita.doctor_id_FK != doctor_actual.id_PK:
+            raise HTTPException(status_code=403, detail="Solo puedes reprogramar citas de tu consultorio")
     paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
     doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
 
@@ -689,7 +721,7 @@ async def cambiar_estado_cita_patch(
         if not doctor or doctor.id_PK != cita.doctor_id_FK:
             raise HTTPException(status_code=403, detail="Solo puedes modificar tus propias citas")
     else:
-        verificar_permiso_recepcion(usuario_actual)
+        verificar_permiso_recepcion(usuario_actual, db)
 
     estado_previo = (cita.estado or "").lower()
     cita.estado = estado
@@ -715,7 +747,7 @@ async def eliminar_cita(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    verificar_permiso_recepcion(usuario_actual)
+    verificar_permiso_recepcion(usuario_actual, db)
 
     cita = db.query(Cita).filter(Cita.id_PK == cita_id).first()
     if not cita:
@@ -727,6 +759,10 @@ async def eliminar_cita(
     clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
     if clinica_id is not None and cita.clinica_id_FK != clinica_id:
         raise HTTPException(status_code=403, detail="No tienes permiso sobre esta cita")
+    if usuario_actual.rol_id_FK == 2:
+        doctor_actual = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
+        if not doctor_actual or cita.doctor_id_FK != doctor_actual.id_PK:
+            raise HTTPException(status_code=403, detail="Solo puedes eliminar citas de tu consultorio")
     paciente = db.query(Paciente).filter(Paciente.id_PK == cita.paciente_id_FK).first()
     doctor = db.query(Doctor).filter(Doctor.id_PK == cita.doctor_id_FK).first()
 

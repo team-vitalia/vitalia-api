@@ -50,6 +50,28 @@ async def consultar_asistente_ia(
             detail="No tienes permiso para acceder al asistente en una cita de otra clínica.",
         )
 
+    from app.models.clinica import Clinica
+    from app.models.plan_suscripcion import PlanSuscripcion
+
+    plan_nombre = ""
+    clinica_obj = getattr(usuario_actual, "clinica", None)
+    if clinica_obj and getattr(clinica_obj, "plan", None):
+        plan_nombre = (clinica_obj.plan.nombre or "").lower().strip()
+    elif clinica_id:
+        plan_nombre = (
+            db.query(PlanSuscripcion.nombre)
+            .join(Clinica, Clinica.plan_id_FK == PlanSuscripcion.id_PK)
+            .filter(Clinica.id_PK == clinica_id)
+            .scalar()
+            or ""
+        ).lower().strip()
+
+    if plan_nombre not in ["profesional", "empresarial"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El Asistente Clínico IA requiere un plan Profesional o Empresarial.",
+        )
+
     if usuario_actual.rol_id_FK == 2:
         doctor = (
             db.query(Doctor)
@@ -69,7 +91,6 @@ async def consultar_asistente_ia(
         incluir_notas=payload.incluir_notas_previas,
     )
 
-    # TRAZABILIDAD Y AUDITORÍA SIN ALMACENAR DATOS SENSIBLES
     total_alertas_alergia = sum(
         1 for m in respuesta_ia.medicamentos_sugeridos if m.alerta_alergia
     )

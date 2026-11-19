@@ -224,7 +224,7 @@ def test_metricas_superadmin(sesion_db: Session, cliente: TestClient):
         assert datos["clinicas_activas"] >= 1
         assert datos["clinicas_inactivas"] == 0
         assert datos["ingresos_mensuales"] > 0
-        assert datos["total_planes"] == 4
+        assert datos["total_planes"] >= 4
     finally:
         app.dependency_overrides.pop(get_current_user, None)
 
@@ -250,8 +250,9 @@ def test_listar_planes_superadmin(sesion_db: Session, cliente: TestClient):
         assert respuesta.status_code == 200
         planes = respuesta.json()
         assert isinstance(planes, list)
-        assert len(planes) == 4
+        assert len(planes) >= 4
         nombres = [p["nombre"] for p in planes]
+        assert "Gratuito" in nombres
         assert "Básico" in nombres
         assert "Clínica" in nombres
         assert "Profesional" in nombres

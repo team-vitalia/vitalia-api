@@ -45,7 +45,7 @@ def sesion_db():
 def test_creacion_planes_suscripcion(sesion_db: Session):
     planes, demo = sembrar_planes_y_clinica_demo(sesion_db)
 
-    assert len(planes) == 4
+    assert len(planes) == 5
 
     basico = sesion_db.query(PlanSuscripcion).filter(
         PlanSuscripcion.nombre == "Básico"

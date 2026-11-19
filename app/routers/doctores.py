@@ -468,9 +468,34 @@ def obtener_mis_pacientes(
             detail="No tienes un perfil de doctor registrado"
         )
 
-    # 2. Buscar los IDs únicos de pacientes que tienen citas con este doctor
     from app.models.cita import Cita
     from app.models.paciente import Paciente
+
+    es_gratuito = False
+    if usuario_actual.clinica and usuario_actual.clinica.plan:
+        es_gratuito = (usuario_actual.clinica.plan.nombre or "").lower().strip() == "gratuito"
+
+    if es_gratuito:
+        pacientes = (
+            db.query(Paciente)
+            .filter(Paciente.clinica_id_FK == usuario_actual.clinica_id_FK)
+            .order_by(Paciente.apellido, Paciente.nombre)
+            .all()
+        )
+        return [
+            {
+                "id_PK": p.id_PK,
+                "nombre": p.nombre,
+                "apellido": p.apellido,
+                "correo_electronico": p.correo_electronico,
+                "telefono": p.telefono,
+                "fecha_nacimiento": str(p.fecha_nacimiento) if p.fecha_nacimiento else None,
+                "genero": p.genero,
+                "direccion": p.direccion,
+                "estado": p.estado,
+            }
+            for p in pacientes
+        ]
 
     pacientes_ids = (
         db.query(Cita.paciente_id_FK)
@@ -524,22 +549,22 @@ def listar_doctores_para_transferir(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    # Cualquier doctor puede ver la lista para transferir
     if usuario_actual.rol_id_FK != 2:
         raise HTTPException(status_code=403, detail="Solo los doctores pueden ver esta lista")
 
-    # Buscar el doctor actual para excluirlo de la lista
     doctor_actual = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario_actual.id_PK).first()
     
     doctores = (
         db.query(Doctor)
         .join(Doctor.usuario)
         .options(joinedload(Doctor.usuario), joinedload(Doctor.especialidad))
-        .filter(Doctor.estado == "activo")
+        .filter(
+            Doctor.estado == "activo",
+            Usuario.clinica_id_FK == usuario_actual.clinica_id_FK,
+        )
         .all()
     )
 
-    # Filtrar para no mostrar al mismo doctor
     resultado = []
     for doc in doctores:
         if doctor_actual and doc.id_PK == doctor_actual.id_PK:

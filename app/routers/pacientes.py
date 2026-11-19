@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -24,10 +26,10 @@ router = APIRouter(
 def verificar_permiso_recepcion(
     usuario_actual: Usuario
 ):
-    if usuario_actual.rol_id_FK not in [1, 4, 5]:
+    if usuario_actual.rol_id_FK not in [1, 2, 4, 5]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo el administrador, coordinador o recepcionista pueden gestionar pacientes"
+            detail="Solo el personal autorizado puede gestionar pacientes"
         )
 
 
@@ -80,6 +82,16 @@ def crear_paciente(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
+    es_gratuito = False
+    if usuario_actual.clinica and usuario_actual.clinica.plan:
+        es_gratuito = (usuario_actual.clinica.plan.nombre or "").lower().strip() == "gratuito"
+
+    if usuario_actual.rol_id_FK == 2 and not es_gratuito:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="En planes de pago, los pacientes deben ser registrados por administración o recepción"
+        )
+
     verificar_permiso_recepcion(usuario_actual)
 
     clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
@@ -104,7 +116,8 @@ def crear_paciente(
         telefono=datos.telefono,
         direccion=datos.direccion,
         correo_electronico=datos.correo_electronico,
-        estado="activo"
+        estado="activo",
+        creado_en=datetime.now(),
     )
 
     db.add(paciente)

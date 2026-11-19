@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr
 
 
@@ -41,3 +42,47 @@ class ConfirmarSuscripcionResponse(BaseModel):
     activa: bool
     mensaje: str
     nombre_plan: str | None = None
+
+
+class RegistroGratuitoRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    nombre_clinica: str | None = None
+    nombre_doctor: str | None = None
+    nombre: str | None = None
+    correo: EmailStr
+    password: str
+
+
+class RegistroGratuitoResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    status: str
+    access_token: str
+    token_type: str
+    clinica_id: int
+    nombre_clinica: str
+    nombre_plan: str
+    mensaje: str
+    usuario_id: int
+
+
+class CancelarSuscripcionRequest(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    motivo_categoria: str
+    comentarios_adicionales: str | None = None
+    solicitar_reembolso: bool = False
+
+
+class CancelarSuscripcionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    status: str
+    mensaje: str
+    clinica_id: int
+    plan_actual: str
+    aplica_reembolso: bool
+    estado_reembolso: str
+    paypal_refund_id: str | None = None
+    fecha_cancelacion: datetime

@@ -4,14 +4,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, verificar_modulo_salas
 from app.models.usuario import Usuario
 from app.schemas.sala import SalaCreate, SalaUpdate, SalaOut, SalaEstadoUpdate
 from app.schemas.equipamiento import EquipamientoCreate, EquipamientoOut
 from app.schemas.common import PageResponse, PageMeta
 from app.services.sala_service import SalaService
 
-router = APIRouter(prefix="/api/salas", tags=["Salas"])
+router = APIRouter(
+    prefix="/api/salas",
+    tags=["Salas"],
+    dependencies=[Depends(verificar_modulo_salas)],
+)
 
 
 @router.get("", response_model=PageResponse[SalaOut])

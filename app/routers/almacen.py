@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, verificar_modulo_almacen
 from app.core.roles import (
     ROL_ADMIN, ROL_ALMACEN, ROL_COORDINADOR, ROL_DOCTOR, ROL_RECEPCION,
     clinica_de, exigir_rol,
@@ -47,7 +47,11 @@ from app.services.interacciones_service import evaluar_interacciones as servicio
 from app.services.notificacion_service import NotificacionService
 from app.utils.auditoria import ip_desde_request, registrar_auditoria, serializar
 
-router = APIRouter(prefix="/api/almacen", tags=["Almacén e Interacciones"])
+router = APIRouter(
+    prefix="/api/almacen",
+    tags=["Almacén e Interacciones"],
+    dependencies=[Depends(verificar_modulo_almacen)],
+)
 
 ROLES_ALMACEN = [ROL_ADMIN, ROL_ALMACEN]
 ROLES_LECTURA_ALMACEN = [ROL_ADMIN, ROL_ALMACEN, ROL_COORDINADOR]

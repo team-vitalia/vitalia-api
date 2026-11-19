@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Date, ForeignKey, Integer, String, Text
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship, synonym
 
 from app.database.connection import Base
@@ -75,6 +75,13 @@ class Paciente(Base):
     estado: Mapped[str | None] = mapped_column(
         String(50)
     )
+
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.now,
+        nullable=True
+    )
+    fecha_creacion = synonym("creado_en")
 
     usuario = relationship("Usuario")
     clinica = relationship("Clinica", back_populates="pacientes")

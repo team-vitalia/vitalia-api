@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.core.dependencies import get_current_user
+from app.core.dependencies import get_current_user, verificar_modulo_contratos
 from app.models.usuario import Usuario
 from app.models.doctor import Doctor
 from app.models.contrato_doctor import ContratoDoctor
@@ -16,6 +16,7 @@ from app.schemas.contrato_doctor import (
 router = APIRouter(
     prefix="/api/contratos",
     tags=["Contratos"],
+    dependencies=[Depends(verificar_modulo_contratos)],
 )
 
 

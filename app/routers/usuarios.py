@@ -166,6 +166,13 @@ def crear_usuario(
 
     clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
     if clinica_id is not None:
+        from app.services.suscripcion_service import obtener_clinica_con_plan
+        _, plan = obtener_clinica_con_plan(db, clinica_id)
+        if (plan.nombre or "").strip().lower() == "gratuito":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="El plan Gratuito no permite la administración de personal ni creación de nuevos usuarios.",
+            )
         if datos.rol_id_FK == ROL_PACIENTE:
             verificar_limite_pacientes(db, clinica_id)
         else:

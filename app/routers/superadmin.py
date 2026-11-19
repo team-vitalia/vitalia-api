@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.core.dependencies import get_current_user
 from app.database.connection import get_db
+from app.models.cancelacion_suscripcion import CancelacionSuscripcion
 from app.models.cita import Cita
 from app.models.clinica import Clinica
 from app.models.paciente import Paciente
@@ -16,6 +17,8 @@ from app.schemas.superadmin import (
     AdministradorClinicaOut,
     AuditoriaAccesoOut,
     AuditoriaActividadOut,
+    CancelacionItemOut,
+    CancelacionesSuperadminOut,
     ClinicaEstadoUpdate,
     ClinicaPlanUpdate,
     ClinicaSuperadminOut,
@@ -545,3 +548,59 @@ def listar_planes(
         )
         for p in planes
     ]
+
+
+@router.get("/cancelaciones", response_model=CancelacionesSuperadminOut)
+def listar_cancelaciones(
+    db: Session = Depends(get_db),
+):
+    registros = (
+        db.query(CancelacionSuscripcion)
+        .options(
+            joinedload(CancelacionSuscripcion.clinica),
+            joinedload(CancelacionSuscripcion.plan_anterior),
+        )
+        .order_by(CancelacionSuscripcion.fecha_cancelacion.desc())
+        .all()
+    )
+
+    total_cancelaciones = len(registros)
+    total_reembolsos_procesados = sum(1 for r in registros if r.estado_reembolso == "PROCESADO")
+
+    motivos_conteo: dict[str, int] = {}
+    estados_reembolso_conteo: dict[str, int] = {}
+
+    items = []
+    for r in registros:
+        cat = r.motivo_categoria or "OTRO"
+        motivos_conteo[cat] = motivos_conteo.get(cat, 0) + 1
+
+        est = r.estado_reembolso or "NO_APLICA"
+        estados_reembolso_conteo[est] = estados_reembolso_conteo.get(est, 0) + 1
+
+        nombre_clinica = r.clinica.nombre_comercial if r.clinica else "Clínica"
+        nombre_plan = r.plan_anterior.nombre if r.plan_anterior else "Plan de Pago"
+
+        items.append(
+            CancelacionItemOut(
+                id=r.id_PK,
+                clinica_id=r.clinica_id_FK,
+                nombre_clinica=nombre_clinica,
+                plan_anterior_id=r.plan_anterior_id_FK,
+                nombre_plan_anterior=nombre_plan,
+                fecha_cancelacion=r.fecha_cancelacion,
+                motivo_categoria=r.motivo_categoria,
+                comentarios_adicionales=r.comentarios_adicionales,
+                aplica_reembolso=r.aplica_reembolso,
+                estado_reembolso=r.estado_reembolso,
+                paypal_refund_id=r.paypal_refund_id,
+            )
+        )
+
+    return CancelacionesSuperadminOut(
+        total_cancelaciones=total_cancelaciones,
+        total_reembolsos_procesados=total_reembolsos_procesados,
+        motivos_conteo=motivos_conteo,
+        estados_reembolso_conteo=estados_reembolso_conteo,
+        cancelaciones=items,
+    )

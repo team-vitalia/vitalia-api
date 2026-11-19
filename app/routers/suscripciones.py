@@ -5,19 +5,27 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.security import generar_hash_password, verificar_password
+from app.core.dependencies import get_current_user
+from app.core.security import crear_access_token, generar_hash_password, verificar_password
 from app.database.connection import get_db
+from app.models.cancelacion_suscripcion import CancelacionSuscripcion
 from app.models.clinica import Clinica
+from app.models.doctor import Doctor
 from app.models.plan_suscripcion import PlanSuscripcion
 from app.models.role import Role
 from app.models.usuario import Usuario
 from app.schemas.suscripcion import (
+    CancelarSuscripcionRequest,
+    CancelarSuscripcionResponse,
     ConfirmarSuscripcionRequest,
     ConfirmarSuscripcionResponse,
     PreRegistroRequest,
     PreRegistroResponse,
+    RegistroGratuitoRequest,
+    RegistroGratuitoResponse,
 )
 from app.services.connection_manager import manager
+from app.services.paypal_service import cancelar_suscripcion_paypal, reembolsar_captura_paypal
 
 logger = logging.getLogger("vitalia.suscripciones")
 
@@ -25,6 +33,141 @@ router = APIRouter(
     prefix="/api/suscripciones",
     tags=["Suscripciones"],
 )
+
+
+@router.post(
+    "/registro-gratuito",
+    response_model=RegistroGratuitoResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def registro_gratuito(
+    datos: RegistroGratuitoRequest,
+    db: Session = Depends(get_db),
+):
+    correo = str(datos.correo).strip().lower()
+    nombre_doc = (datos.nombre_doctor or datos.nombre or "").strip()
+    nombre_clin = (datos.nombre_clinica or "").strip()
+
+    if not nombre_doc and not nombre_clin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Se requiere el nombre del consultorio o doctor",
+        )
+
+    if not nombre_doc:
+        nombre_doc = nombre_clin
+    if not nombre_clin:
+        nombre_clin = f"Consultorio {nombre_doc}"
+
+    if not datos.password or len(datos.password.strip()) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La contraseña debe tener al menos 6 caracteres",
+        )
+
+    usuario_existente = db.query(Usuario).filter(
+        Usuario.correo_electronico == correo
+    ).first()
+    if usuario_existente:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El correo electrónico ya se encuentra registrado",
+        )
+
+    try:
+        plan = db.query(PlanSuscripcion).filter(
+            PlanSuscripcion.nombre == "Gratuito"
+        ).first()
+        if not plan:
+            plan = PlanSuscripcion(
+                nombre="Gratuito",
+                precio_mensual=0.0,
+                precio_anual=0.0,
+                limite_personal=1,
+                limite_pacientes=20,
+                limite_pacientes_mes=20,
+                incluye_calendar=False,
+                incluye_correos=False,
+                limite_ia_mensual=0,
+                limite_sucursales=1,
+                incluye_contratos=False,
+                incluye_salas=False,
+                incluye_almacen=False,
+                incluye_reportes=False,
+                incluye_auditoria=False,
+                incluye_roles=False,
+                paypal_plan_id=None,
+            )
+            db.add(plan)
+            db.flush()
+
+        clinica = Clinica(
+            nombre_comercial=nombre_clin,
+            plan_id_FK=plan.id_PK,
+            fecha_registro=datetime.now(),
+            activa=True,
+            paypal_subscription_id=None,
+        )
+        db.add(clinica)
+        db.flush()
+
+        rol_doctor = db.query(Role).filter(Role.nombre == "Doctor").first()
+        if not rol_doctor:
+            rol_doctor = db.query(Role).filter(Role.id_PK == 2).first()
+        if not rol_doctor:
+            rol_doctor = Role(
+                id_PK=2,
+                nombre="Doctor",
+                descripcion="Médico del sistema",
+                esta_activo=True,
+            )
+            db.add(rol_doctor)
+            db.flush()
+
+        usuario = Usuario(
+            clinica_id_FK=clinica.id_PK,
+            nombre=nombre_doc,
+            correo_electronico=correo,
+            hash_contrasena=generar_hash_password(datos.password),
+            auth_provider="manual",
+            rol_id_FK=rol_doctor.id_PK,
+            estado="activo",
+            creado_en=datetime.now(),
+        )
+        db.add(usuario)
+        db.flush()
+
+        doctor_perfil = Doctor(
+            usuario_id_FK=usuario.id_PK,
+            estado="activo",
+        )
+        db.add(doctor_perfil)
+
+        db.commit()
+        db.refresh(clinica)
+        db.refresh(usuario)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+
+    token = crear_access_token(
+        data={"sub": str(usuario.id_PK), "rol_id": usuario.rol_id_FK},
+        clinica_id=clinica.id_PK,
+    )
+
+    return RegistroGratuitoResponse(
+        status="success",
+        access_token=token,
+        token_type="bearer",
+        clinica_id=clinica.id_PK,
+        nombre_clinica=clinica.nombre_comercial,
+        nombre_plan=plan.nombre,
+        mensaje="Registro gratuito completado exitosamente",
+        usuario_id=usuario.id_PK,
+    )
 
 
 @router.post(
@@ -259,6 +402,7 @@ async def confirmar_suscripcion(
 
     clinica.activa = True
     clinica.paypal_subscription_id = datos.subscription_id.strip()
+    clinica.fecha_inicio_suscripcion = datetime.now()
 
     if datos.paypal_plan_id:
         plan = db.query(PlanSuscripcion).filter(
@@ -329,4 +473,143 @@ async def confirmar_suscripcion(
         activa=clinica.activa,
         mensaje="Suscripción activada exitosamente",
         nombre_plan=nombre_plan_actual,
+    )
+
+
+@router.post(
+    "/cancelar",
+    response_model=CancelarSuscripcionResponse,
+    status_code=status.HTTP_200_OK,
+)
+def cancelar_suscripcion(
+    datos: CancelarSuscripcionRequest,
+    usuario_actual: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if not clinica_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El usuario no tiene una clínica asociada",
+        )
+
+    clinica = db.query(Clinica).filter(Clinica.id_PK == clinica_id).first()
+    if not clinica:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clínica no encontrada",
+        )
+
+    es_admin = getattr(usuario_actual, "rol_id_FK", None) == 1
+    es_super = getattr(usuario_actual, "is_superadmin", False)
+    es_titular = False
+    if clinica:
+        tiene_admin_dedicado = any(
+            u.rol_id_FK == 1 for u in clinica.usuarios if u.id_PK != usuario_actual.id_PK
+        )
+        if not tiene_admin_dedicado:
+            es_titular = True
+
+    if not es_admin and not es_super and not es_titular:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el administrador o titular de la clínica puede cancelar la suscripción",
+        )
+
+    if not clinica.activa:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La clínica no se encuentra activa",
+        )
+
+    if clinica.plan and (clinica.plan.nombre or "").strip().lower() == "gratuito":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La clínica ya se encuentra en el plan Gratuito",
+        )
+
+    subscription_id = clinica.paypal_subscription_id
+    if subscription_id:
+        cancelar_suscripcion_paypal(subscription_id, motivo=datos.motivo_categoria)
+
+    fecha_inicio = clinica.fecha_inicio_suscripcion or clinica.fecha_registro or datetime.now()
+    dias_transcurridos = (datetime.now() - fecha_inicio).days
+
+    aplica_reembolso = False
+    estado_reembolso = "NO_APLICA"
+    paypal_refund_id = None
+
+    if dias_transcurridos <= 10 and datos.solicitar_reembolso:
+        aplica_reembolso = True
+        capture_id = clinica.ultimo_pago_capture_id or f"CAP-{subscription_id or clinica.id_PK}"
+        refund_id = reembolsar_captura_paypal(capture_id, motivo="Garantia 10 dias")
+        if refund_id:
+            estado_reembolso = "PROCESADO"
+            paypal_refund_id = refund_id
+        else:
+            estado_reembolso = "FALLIDO"
+
+    plan_anterior_id = clinica.plan_id_FK
+
+    plan_gratuito = db.query(PlanSuscripcion).filter(
+        PlanSuscripcion.nombre == "Gratuito"
+    ).first()
+    if not plan_gratuito:
+        plan_gratuito = PlanSuscripcion(
+            nombre="Gratuito",
+            precio_mensual=0.0,
+            precio_anual=0.0,
+            limite_personal=1,
+            limite_pacientes=20,
+            limite_pacientes_mes=20,
+            incluye_calendar=False,
+            incluye_correos=False,
+            limite_ia_mensual=0,
+            limite_sucursales=1,
+            incluye_contratos=False,
+            incluye_salas=False,
+            incluye_almacen=False,
+            incluye_reportes=False,
+            incluye_auditoria=False,
+            incluye_roles=False,
+            paypal_plan_id=None,
+        )
+        db.add(plan_gratuito)
+        db.flush()
+
+    try:
+        clinica.plan_id_FK = plan_gratuito.id_PK
+        clinica.paypal_subscription_id = None
+        clinica.activa = True
+
+        cancelacion = CancelacionSuscripcion(
+            clinica_id_FK=clinica.id_PK,
+            plan_anterior_id_FK=plan_anterior_id,
+            fecha_cancelacion=datetime.now(),
+            motivo_categoria=datos.motivo_categoria,
+            comentarios_adicionales=datos.comentarios_adicionales,
+            aplica_reembolso=aplica_reembolso,
+            estado_reembolso=estado_reembolso,
+            paypal_refund_id=paypal_refund_id,
+        )
+        db.add(cancelacion)
+        db.commit()
+        db.refresh(clinica)
+        db.refresh(cancelacion)
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Error al procesar la cancelación en base de datos",
+        )
+
+    return CancelarSuscripcionResponse(
+        status="success",
+        mensaje="Suscripción cancelada y cuenta migrada al Plan Gratuito exitosamente",
+        clinica_id=clinica.id_PK,
+        plan_actual="Gratuito",
+        aplica_reembolso=aplica_reembolso,
+        estado_reembolso=estado_reembolso,
+        paypal_refund_id=paypal_refund_id,
+        fecha_cancelacion=cancelacion.fecha_cancelacion,
     )

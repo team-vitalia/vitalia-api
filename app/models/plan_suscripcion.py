@@ -1,5 +1,3 @@
-"""Modelo PlanSuscripcion actualizado con columna paypal_plan_id para integracion con PayPal."""
-
 from sqlalchemy import Boolean, Float, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -41,6 +39,12 @@ class PlanSuscripcion(Base):
         nullable=False
     )
 
+    limite_pacientes_mes: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+        default=None
+    )
+
     incluye_calendar: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
@@ -62,6 +66,36 @@ class PlanSuscripcion(Base):
     incluye_contratos: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False
+    )
+
+    incluye_salas: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+
+    incluye_almacen: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+
+    incluye_reportes: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+
+    incluye_auditoria: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+        nullable=False
+    )
+
+    incluye_roles: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
         nullable=False
     )
 

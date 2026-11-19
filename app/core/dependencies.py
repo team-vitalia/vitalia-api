@@ -132,3 +132,100 @@ def require_enterprise_plan(
         )
     return current
 
+
+def verificar_modulo_salas(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    clinica_id = getattr(usuario, "clinica_id_FK", None)
+    if clinica_id:
+        from app.services.suscripcion_service import obtener_clinica_con_plan
+        _, plan = obtener_clinica_con_plan(db, clinica_id)
+        if (plan.nombre or "").strip().lower() == "gratuito" or not getattr(plan, "incluye_salas", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso restringido: El plan Gratuito no incluye acceso a salas.",
+            )
+    return usuario
+
+
+def verificar_modulo_almacen(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    clinica_id = getattr(usuario, "clinica_id_FK", None)
+    if clinica_id:
+        from app.services.suscripcion_service import obtener_clinica_con_plan
+        _, plan = obtener_clinica_con_plan(db, clinica_id)
+        if (plan.nombre or "").strip().lower() == "gratuito" or not getattr(plan, "incluye_almacen", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso restringido: El plan Gratuito no incluye acceso al almacén.",
+            )
+    return usuario
+
+
+def verificar_modulo_reportes(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    clinica_id = getattr(usuario, "clinica_id_FK", None)
+    if clinica_id:
+        from app.services.suscripcion_service import obtener_clinica_con_plan
+        _, plan = obtener_clinica_con_plan(db, clinica_id)
+        if (plan.nombre or "").strip().lower() == "gratuito" or not getattr(plan, "incluye_reportes", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso restringido: El plan Gratuito no incluye acceso a reportes.",
+            )
+    return usuario
+
+
+def verificar_modulo_auditoria(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    clinica_id = getattr(usuario, "clinica_id_FK", None)
+    if clinica_id:
+        from app.services.suscripcion_service import obtener_clinica_con_plan
+        _, plan = obtener_clinica_con_plan(db, clinica_id)
+        if (plan.nombre or "").strip().lower() == "gratuito" or not getattr(plan, "incluye_auditoria", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso restringido: El plan Gratuito no incluye acceso a auditoría.",
+            )
+    return usuario
+
+
+def verificar_modulo_contratos(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    clinica_id = getattr(usuario, "clinica_id_FK", None)
+    if clinica_id:
+        from app.services.suscripcion_service import obtener_clinica_con_plan
+        _, plan = obtener_clinica_con_plan(db, clinica_id)
+        if (plan.nombre or "").strip().lower() == "gratuito" or not getattr(plan, "incluye_contratos", False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso restringido: El plan Gratuito no incluye acceso a contratos.",
+            )
+    return usuario
+
+
+def verificar_gestion_personal(
+    usuario: Usuario = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Usuario:
+    clinica_id = getattr(usuario, "clinica_id_FK", None)
+    if clinica_id:
+        from app.services.suscripcion_service import obtener_clinica_con_plan
+        _, plan = obtener_clinica_con_plan(db, clinica_id)
+        if (plan.nombre or "").strip().lower() == "gratuito" or not getattr(plan, "incluye_roles", True):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Acceso restringido: El plan Gratuito no incluye administración de personal ni roles.",
+            )
+    return usuario
+
+

@@ -1,16 +1,19 @@
+import asyncio
+import logging
 import os
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.database.connection import get_db
+from app.database.connection import get_db, engine, SessionLocal
+from app.database.verificar_esquema import asegurar_esquema_y_seeds
 from app.core.dependencies import get_current_user
 from app.models.usuario import Usuario
 
 from app.routers.medicamentos import router as medicamentos_router
 from app.routers.recetas import router as recetas_router
-
 from app.routers.auth import router as auth_router
 from app.routers.recuperacion import router as recuperacion_router
 from app.routers.roles import router as roles_router
@@ -24,20 +27,14 @@ from app.routers.contratos import router as contratos_router
 from app.routers.calendar import router as calendar_router
 from app.routers.colas import router as colas_router
 from app.routers.asistente_ia import router as asistente_ia_router
-
 from app.routers.almacen import router as almacen_router
 from app.routers.notificaciones import router as notificaciones_router
-
-# Módulo C2 (Salas, Equipamiento, Auditoría y Reportes)
 from app.routers.salas import router as salas_router
 from app.routers.equipamiento import router as equipamiento_router
 from app.routers.auditoria import router as auditoria_router
 from app.routers.reportes import router as reportes_router
 from app.routers.doctor_salas import router as doctor_salas_router
-
 from app.routers.webhooks import router as webhooks_router
-
-# Módulos de flujo clínico (consultas, expediente, espera, transferencias)
 from app.routers.consultas import router as consultas_router
 from app.routers.expediente import router as expediente_router
 from app.routers.lista_espera import router as lista_espera_router
@@ -46,18 +43,21 @@ from app.routers.analitica_almacen import router as analitica_almacen_router
 from app.routers.suscripciones import router as suscripciones_router
 from app.routers.superadmin import router as superadmin_router
 
+logger = logging.getLogger("vitalia.main")
+
 app = FastAPI(
     title="VITALIA API",
     description="API del sistema de gestión integral de clínicas VITALIA",
     version="1.0.0",
 )
 
-# Configuración de CORS habilitada para desarrollo y producción
 origenes_cors = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:3001",
     "http://127.0.0.1:3001",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
     "http://localhost:8081",
     "http://127.0.0.1:8081",
     "http://localhost:19006",
@@ -65,6 +65,7 @@ origenes_cors = [
     "https://landing-ten-sigma-42.vercel.app",
     "https://vitalia-app-fowe.vercel.app",
     "https://vitalia.software",
+    "https://www.vitalia.software",
     "https://app.vitalia.software",
     "https://admin.vitalia.software",
 ]
@@ -79,13 +80,29 @@ if cors_env:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origenes_cors,
-    allow_origin_regex=r"https://.*\.vercel\.app|https://.*\.vitalia\.software|https://vitalia\.software",
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$|^https://([a-zA-Z0-9-]+\.)*vercel\.app$|^https://([a-zA-Z0-9-]+\.)*vitalia\.software$|^https://vitalia\.software$|^https://([a-zA-Z0-9-]+\.)*onrender\.com$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Registro de rutas principales
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Error no controlado: {str(exc)}", exc_info=True)
+    response = JSONResponse(
+        status_code=500,
+        content={"detail": f"Error interno del servidor: {str(exc)}"},
+    )
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
+
 app.include_router(auth_router)
 app.include_router(recuperacion_router)
 app.include_router(roles_router)
@@ -99,18 +116,13 @@ app.include_router(contratos_router)
 app.include_router(calendar_router)
 app.include_router(colas_router)
 app.include_router(asistente_ia_router)
-
-# Registro de rutas del Módulo A3 (Almacén e Inventarios)
 app.include_router(almacen_router)
 app.include_router(notificaciones_router)
-
-# Registro de rutas del Módulo C2
 app.include_router(salas_router)
 app.include_router(equipamiento_router)
 app.include_router(auditoria_router)
 app.include_router(reportes_router)
 app.include_router(doctor_salas_router)
-
 app.include_router(medicamentos_router)
 app.include_router(recetas_router)
 app.include_router(webhooks_router)
@@ -126,15 +138,13 @@ app.add_api_route("/email-prueba", email_prueba, methods=["POST"])
 
 @app.on_event("startup")
 async def iniciar_servicios_background():
-    """Inicia tareas en segundo plano como el ciclo de recordatorios de citas."""
-    import asyncio
+    asegurar_esquema_y_seeds(engine, SessionLocal)
     from app.services.reminder_service import ciclo_recordatorios_background
     asyncio.create_task(ciclo_recordatorios_background(intervalo_segundos=60))
 
 
 @app.on_event("shutdown")
 def detener_servicios_background():
-    """Detiene tareas en segundo plano al apagar la aplicación."""
     from app.services.reminder_service import detener_ciclo_recordatorios
     detener_ciclo_recordatorios()
 
@@ -158,7 +168,6 @@ def health_database(
     db: Session = Depends(get_db),
 ):
     resultado = db.execute(text("SELECT 1"))
-
     return {
         "database": "conectada",
         "resultado": resultado.scalar(),
@@ -181,8 +190,14 @@ def obtener_usuario_actual(
                 "incluye_ia": (plan.limite_ia_mensual > 0) if plan else False,
                 "incluye_calendar": plan.incluye_calendar if plan else False,
                 "incluye_contratos": plan.incluye_contratos if plan else False,
+                "incluye_salas": plan.incluye_salas if plan else True,
+                "incluye_almacen": plan.incluye_almacen if plan else True,
+                "incluye_reportes": plan.incluye_reportes if plan else True,
+                "incluye_auditoria": plan.incluye_auditoria if plan else True,
+                "incluye_roles": plan.incluye_roles if plan else True,
                 "limite_personal": plan.limite_personal if plan else 3,
                 "limite_pacientes": plan.limite_pacientes if plan else 100,
+                "limite_pacientes_mes": plan.limite_pacientes_mes if plan else None,
                 "limite_ia_mensual": plan.limite_ia_mensual if plan else 0,
                 "precio_mensual": plan.precio_mensual if plan else 599.0,
             } if plan else {
@@ -190,12 +205,29 @@ def obtener_usuario_actual(
                 "incluye_ia": False,
                 "incluye_calendar": False,
                 "incluye_contratos": False,
+                "incluye_salas": True,
+                "incluye_almacen": True,
+                "incluye_reportes": True,
+                "incluye_auditoria": True,
+                "incluye_roles": True,
                 "limite_personal": 3,
                 "limite_pacientes": 100,
+                "limite_pacientes_mes": None,
                 "limite_ia_mensual": 0,
                 "precio_mensual": 599.0,
             }
         }
+
+    es_titular = False
+    if usuario.clinica:
+        if usuario.rol_id_FK == 1 or usuario.is_superadmin:
+            es_titular = True
+        else:
+            tiene_admin_dedicado = any(
+                u.rol_id_FK == 1 for u in usuario.clinica.usuarios if u.id_PK != usuario.id_PK
+            )
+            if not tiene_admin_dedicado:
+                es_titular = True
 
     return {
         "id": usuario.id_PK,
@@ -205,4 +237,5 @@ def obtener_usuario_actual(
         "estado": usuario.estado,
         "clinica": clinica_data,
         "is_superadmin": bool(usuario.is_superadmin),
+        "es_titular": es_titular,
     }
