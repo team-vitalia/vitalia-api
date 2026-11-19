@@ -72,6 +72,8 @@ class ItemRecetaOut(BaseModel):
 class RecetaDetalle(RecetaResponse):
     paciente: str | None = None
     doctor: str | None = None
+    codigo_qr: str | None = None        # 👈 AGREGAR
+    numero_licencia: str | None = None  # 👈 AGREGAR
     items: list[ItemRecetaOut] = []
     disponibilidad: list[DisponibilidadItem] = []
 

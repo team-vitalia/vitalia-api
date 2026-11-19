@@ -1,4 +1,5 @@
 from datetime import datetime
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
@@ -49,8 +50,12 @@ def _detalle(db: Session, receta: Receta, con_disponibilidad: bool = True) -> di
         "consulta_id_FK": receta.consulta_id_FK,
         "estado": receta.estado,
         "creado_en": receta.creado_en,
+        "codigo_qr": receta.codigo_qr,
         "paciente": nombre_completo(receta.paciente),
         "doctor": receta.doctor.nombre if receta.doctor else None,
+        # 👇 AGREGAMOS ESTA LÍNEA 👇
+        "numero_licencia": receta.doctor.numero_licencia if receta.doctor else None,
+        # 👆 FIN DE LA LÍNEA NUEVA 👆
         "items": [
             {
                 "id_PK": it.id_PK,
@@ -90,7 +95,6 @@ def _puede_ver_receta(db: Session, usuario: Usuario, receta: Receta) -> bool:
 
 
 def _consulta_para_receta(db: Session, datos: RecetaCrear, doctor, paciente) -> Consulta:
-    """Valida la consulta indicada o busca/crea la consulta de la cita."""
     if datos.consulta_id_FK is not None:
         consulta = db.query(Consulta).filter(Consulta.id_PK == datos.consulta_id_FK).first()
         if not consulta:
@@ -134,14 +138,6 @@ def crear_receta(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    """Crea una receta, revisa interacciones/alergias y consulta el inventario.
-
-    * Interacciones de severidad grave: responde 409 hasta que el médico envíe
-      `confirmar_interacciones=true`. Las demás se devuelven como advertencia.
-    * Siempre devuelve `disponibilidad` por medicamento para que el médico pueda
-      avisar al paciente si algo no está disponible.
-    Los avisos son una ayuda de apoyo: no sustituyen el criterio clínico.
-    """
     exigir_rol(usuario_actual, [ROL_DOCTOR], "Solo los médicos pueden recetar")
 
     doctor = doctor_de_usuario(db, usuario_actual)
@@ -170,7 +166,6 @@ def crear_receta(
             raise HTTPException(status_code=400, detail=f"«{med.nombre}» es un insumo/equipo y no se puede recetar")
         medicamentos.append(med)
 
-    # Interacciones y alergias (avisos de apoyo)
     interacciones = evaluar_interacciones(db, ids)
     graves = [i for i in interacciones if es_grave(i["severidad"])]
     if graves and not datos.confirmar_interacciones:
@@ -187,11 +182,15 @@ def crear_receta(
     try:
         consulta = _consulta_para_receta(db, datos, doctor, paciente)
 
+        # 👇 GENERAMOS EL CÓDIGO ÚNICO PARA EL QR 👇
+        codigo_unico = f"VITALIA-REC-{uuid.uuid4().hex[:8].upper()}"
+
         receta = Receta(
             paciente_id_FK=paciente.id_PK,
             doctor_id_FK=doctor.id_PK,
             consulta_id_FK=consulta.id_PK,
             estado=inv.ESTADO_RECETA_ACTIVA,
+            codigo_qr=codigo_unico, # Guardamos el código
         )
         db.add(receta)
         db.flush()
@@ -234,7 +233,6 @@ def crear_receta(
         raise HTTPException(status_code=500, detail=f"Error al guardar la receta: {e}")
 
     detalle = _detalle(db, receta)
-    # Si la clínica aún no usa el inventario (sin lotes), no se alerta de «sin existencias»
     inventario_en_uso = (
         db.query(Inventario.id_PK)
         .join(Medicamento, Inventario.medicamento_id_FK == Medicamento.id_PK)
@@ -267,7 +265,6 @@ def mis_recetas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    """Recetas del paciente autenticado (app del paciente)."""
     exigir_rol(usuario_actual, [ROL_PACIENTE])
     paciente = paciente_de_usuario(db, usuario_actual)
     if not paciente:
@@ -278,7 +275,6 @@ def mis_recetas(
         .order_by(Receta.creado_en.desc())
         .all()
     )
-    # El paciente ve su receta y el estado; el stock interno no se expone.
     salida = []
     for r in recetas:
         d = _detalle(db, r, con_disponibilidad=False)
@@ -294,7 +290,6 @@ def listar_recetas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    """Lista recetas según el rol (doctor: las suyas; admin/coord/almacén: de la clínica)."""
     exigir_rol(usuario_actual, [ROL_DOCTOR, ROL_ADMIN, ROL_COORDINADOR, ROL_ALMACEN])
 
     q = db.query(Receta).join(Paciente, Receta.paciente_id_FK == Paciente.id_PK)
@@ -326,8 +321,25 @@ def obtener_receta(
         raise HTTPException(status_code=404, detail="Receta no encontrada")
     if not _puede_ver_receta(db, usuario_actual, receta):
         raise HTTPException(status_code=403, detail="No tienes permiso para ver esta receta")
-    # El paciente no necesita ver existencias internas
     return _detalle(db, receta, con_disponibilidad=usuario_actual.rol_id_FK != ROL_PACIENTE)
+
+@router.get("/verificar-qr/{codigo_qr}")
+def verificar_qr(
+    codigo_qr: str,
+    db: Session = Depends(get_db),
+):
+    """Endpoint público para verificar una receta escaneando su código QR."""
+    receta = db.query(Receta).filter(Receta.codigo_qr == codigo_qr).first()
+    if not receta:
+        raise HTTPException(status_code=404, detail="Código QR no válido o inexistente")
+    
+    if receta.estado == inv.ESTADO_RECETA_CANCELADA:
+        raise HTTPException(status_code=400, detail="Esta receta ha sido cancelada")
+    
+    if receta.estado in (inv.ESTADO_RECETA_DISPENSADA, inv.ESTADO_RECETA_PARCIAL):
+        raise HTTPException(status_code=400, detail="Esta receta ya fue dispensada y el código expiró")
+
+    return _detalle(db, receta)
 
 
 @router.get("/{receta_id}/disponibilidad")
@@ -336,7 +348,6 @@ def disponibilidad_de_receta(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user),
 ):
-    """Disponibilidad en inventario de cada medicamento de la receta."""
     exigir_rol(usuario_actual, [ROL_DOCTOR, ROL_ADMIN, ROL_COORDINADOR, ROL_ALMACEN])
     receta = db.query(Receta).filter(Receta.id_PK == receta_id).first()
     if not receta:

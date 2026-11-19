@@ -22,6 +22,12 @@ class EquipamientoSala(Base):
         String(200)
     )
 
+    # Categoría del equipo (diagnostico, monitoreo, cirugia, ...). La app
+    # muestra un icono distinto según este valor.
+    tipo_equipo: Mapped[str | None] = mapped_column(
+        String(30)
+    )
+
     numero_serie: Mapped[str | None] = mapped_column(
         String(100)
     )

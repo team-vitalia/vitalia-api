@@ -1,5 +1,6 @@
+import logging
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi import Query
 from pydantic import BaseModel
 from typing import Optional
@@ -18,6 +19,7 @@ from app.models.equipamiento_sala import EquipamientoSala
 from app.models.sala import Sala
 from app.routers.doctor_salas import sala_valida_para_cita
 from app.core.dependencies import get_current_user
+from app.utils.auditoria import ip_desde_request, registrar_auditoria
 from app.services.citas_calendar_service import (
     sincronizar_creacion_google_calendar,
     sincronizar_actualizacion_google_calendar,
@@ -43,6 +45,20 @@ class ReasignarCitaSchema(BaseModel):
 
 # Variable movida aquí para evitar el error de sintaxis
 ESTADOS_CITA = ("programada", "confirmada", "en_curso", "completada", "cancelada", "no_asistio")
+
+logger = logging.getLogger(__name__)
+
+
+def _auditar_sala(db, usuario, accion, cita_id, antes, despues, request, descripcion):
+    """Registra el uso de una sala. Es un complemento: si falla, la cita NO debe fallar."""
+    try:
+        registrar_auditoria(
+            db, usuario, accion, "citas", cita_id, antes, despues,
+            ip=ip_desde_request(request), descripcion=descripcion,
+        )
+    except Exception:
+        logger.warning("No se pudo registrar la auditoría de sala de la cita %s", cita_id, exc_info=True)
+
 
 router = APIRouter(
     prefix="/api/citas",
@@ -362,6 +378,7 @@ def obtener_detalle_cita(
 )
 async def crear_cita(
     datos: CitaCrear,
+    request: Request,
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
@@ -457,6 +474,17 @@ async def crear_cita(
     )
 
     db.add(nueva_cita)
+    if isinstance(nueva_cita.sala_id_FK, int):  # trazabilidad del uso de salas
+        db.flush()  # para conocer el id de la cita
+        _auditar_sala(
+            db, usuario_actual, "ASIGNAR_SALA", nueva_cita.id_PK, None,
+            {
+                "sala_id_FK": nueva_cita.sala_id_FK, "fecha": str(nueva_cita.fecha),
+                "hora_inicio": str(nueva_cita.hora_inicio), "hora_fin": str(nueva_cita.hora_fin),
+                "doctor_id_FK": nueva_cita.doctor_id_FK,
+            },
+            request, "Sala reservada para una cita",
+        )
     db.commit()
     db.refresh(nueva_cita)
 
@@ -589,6 +617,7 @@ def reasignar_cita(
 async def reprogramar_cita(
     cita_id: int,
     datos: CitaReprogramar,
+    request: Request,
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
@@ -630,6 +659,10 @@ async def reprogramar_cita(
             db, cita.doctor_id_FK, datos.fecha, datos.hora_inicio, datos.hora_fin,
             sala_id, req_eq, eq_id, accion, excluir_cita_id=cita.id_PK,
         )
+    sala_anterior = {
+        "sala_id_FK": cita.sala_id_FK, "fecha": str(cita.fecha) if cita.fecha else None,
+        "hora_inicio": str(cita.hora_inicio),
+    }
     cita.sala_id_FK = sala_id
     cita.requiere_equipo = bool(req_eq)
     cita.equipo_id_FK = eq_id if req_eq else None
@@ -663,6 +696,12 @@ async def reprogramar_cita(
         if nuevo_event_id:
             cita.google_event_id = nuevo_event_id
 
+    if isinstance(sala_id, int) or isinstance(sala_anterior["sala_id_FK"], int):
+        _auditar_sala(
+            db, usuario_actual, "CAMBIAR_SALA", cita.id_PK, sala_anterior,
+            {"sala_id_FK": cita.sala_id_FK, "fecha": str(cita.fecha), "hora_inicio": str(cita.hora_inicio)},
+            request, "Cita reprogramada con sala",
+        )
     db.commit()
     db.refresh(cita)
 

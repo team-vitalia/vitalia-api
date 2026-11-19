@@ -4,18 +4,45 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.core.dependencies import get_current_user, require_roles, verificar_modulo_salas
+from app.core.dependencies import get_current_user, require_roles
 from app.models.usuario import Usuario
-from app.schemas.sala import SalaCreate, SalaUpdate, SalaOut, SalaEstadoUpdate
+from app.schemas.common import PageMeta, PageResponse
 from app.schemas.equipamiento import EquipamientoCreate, EquipamientoOut
-from app.schemas.common import PageResponse, PageMeta
-from app.services.sala_service import SalaService
+from app.schemas.sala import SalaCreate, SalaEstadoUpdate, SalaOut, SalaUpdate
+from app.services.sala_service import SalaService, estado_mantenimiento
 
 router = APIRouter(
     prefix="/api/salas",
     tags=["Salas"],
     dependencies=[Depends(verificar_modulo_salas)],
 )
+
+ROLES_GESTION = ["Administrador", "Coordinador"]
+
+
+def _servicio(db: Session, usuario: Usuario) -> SalaService:
+    return SalaService(db, clinica_id=getattr(usuario, "clinica_id_FK", None))
+
+
+def _sala_out(sala, conteos=None) -> SalaOut:
+    out = SalaOut.model_validate(sala)
+    if isinstance(conteos, dict):
+        out.total_equipos = conteos.get("total_equipos", 0)
+        out.equipos_con_problema = conteos.get("equipos_con_problema", 0)
+        out.citas_proximas = conteos.get("citas_proximas", 0)
+    return out
+
+
+def _conteo_de(servicio, sala):
+    """Contadores de una sola sala (si el servicio no los puede dar, se omiten)."""
+    todos = servicio.conteos([sala])
+    return todos.get(sala.id_PK) if isinstance(todos, dict) else None
+
+
+def _equipo_out(equipo) -> EquipamientoOut:
+    out = EquipamientoOut.model_validate(equipo)
+    out.mantenimiento_estado = estado_mantenimiento(equipo)
+    return out
 
 
 @router.get("", response_model=PageResponse[SalaOut])
@@ -25,16 +52,21 @@ def listar_salas(
     estado: Optional[str] = Query(None),
     piso: Optional[str] = Query(None),
     tipo: Optional[str] = Query(None),
+    buscar: Optional[str] = Query(None, description="Texto en nombre o ubicación"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    items, total = SalaService(db).listar(
+    servicio = _servicio(db, current)
+    items, total = servicio.listar(
         clinica_id=getattr(current, "clinica_id_FK", None),
-        estado=estado, piso=piso, tipo=tipo, page=page, page_size=page_size
+        estado=estado, piso=piso, tipo=tipo, buscar=buscar, page=page, page_size=page_size,
     )
+    items = list(items)
+    conteos = servicio.conteos(items)
+    conteos = conteos if isinstance(conteos, dict) else {}
     pages = (total + page_size - 1) // page_size
     return PageResponse[SalaOut](
-        data=[SalaOut.model_validate(i) for i in items],
+        data=[_sala_out(i, conteos.get(i.id_PK)) for i in items],
         meta=PageMeta(total=total, page=page, page_size=page_size, pages=pages),
     )
 
@@ -45,10 +77,11 @@ def obtener_sala(
     db: Session = Depends(get_db),
     current: Usuario = Depends(get_current_user),
 ):
-    sala = SalaService(db).obtener(sala_id)
+    servicio = _servicio(db, current)
+    sala = servicio.obtener(sala_id)
     if not sala:
         raise HTTPException(status_code=404, detail="Sala no encontrada")
-    return SalaOut.model_validate(sala)
+    return _sala_out(sala, _conteo_de(servicio, sala))
 
 
 @router.post("", response_model=SalaOut, status_code=status.HTTP_201_CREATED)
@@ -56,11 +89,9 @@ def crear_sala(
     payload: SalaCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
+    current: Usuario = Depends(require_roles(ROLES_GESTION)),
 ):
-    return SalaOut.model_validate(
-        SalaService(db).crear(payload, usuario=current, request=request)
-    )
+    return _sala_out(_servicio(db, current).crear(payload, usuario=current, request=request))
 
 
 @router.put("/{sala_id}", response_model=SalaOut)
@@ -69,12 +100,13 @@ def actualizar_sala(
     payload: SalaUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
+    current: Usuario = Depends(require_roles(ROLES_GESTION)),
 ):
-    sala = SalaService(db).actualizar(sala_id, payload, usuario=current, request=request)
+    servicio = _servicio(db, current)
+    sala = servicio.actualizar(sala_id, payload, usuario=current, request=request)
     if not sala:
         raise HTTPException(status_code=404, detail="Sala no encontrada")
-    return SalaOut.model_validate(sala)
+    return _sala_out(sala, _conteo_de(servicio, sala))
 
 
 @router.patch("/{sala_id}/estado", response_model=SalaOut)
@@ -83,14 +115,13 @@ def cambiar_estado(
     payload: SalaEstadoUpdate,
     request: Request,
     db: Session = Depends(get_db),
-    current: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
+    current: Usuario = Depends(require_roles(ROLES_GESTION)),
 ):
-    sala = SalaService(db).cambiar_estado(
-        sala_id, payload.estado, usuario=current, request=request
-    )
+    servicio = _servicio(db, current)
+    sala = servicio.cambiar_estado(sala_id, payload.estado, usuario=current, request=request)
     if not sala:
         raise HTTPException(status_code=404, detail="Sala no encontrada")
-    return SalaOut.model_validate(sala)
+    return _sala_out(sala, _conteo_de(servicio, sala))
 
 
 @router.delete("/{sala_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -100,7 +131,7 @@ def eliminar_sala(
     db: Session = Depends(get_db),
     current: Usuario = Depends(require_roles(["Administrador"])),
 ):
-    if not SalaService(db).eliminar(sala_id, usuario=current, request=request):
+    if not _servicio(db, current).eliminar(sala_id, usuario=current, request=request):
         raise HTTPException(status_code=404, detail="Sala no encontrada")
 
 
@@ -111,10 +142,10 @@ def listar_equipamiento(
     db: Session = Depends(get_db),
     current: Usuario = Depends(get_current_user),
 ):
-    return [
-        EquipamientoOut.model_validate(e)
-        for e in SalaService(db).listar_equipos(sala_id)
-    ]
+    equipos = _servicio(db, current).listar_equipos(sala_id)
+    if equipos is None:
+        raise HTTPException(status_code=404, detail="Sala no encontrada")
+    return [_equipo_out(e) for e in equipos]
 
 
 @router.post(
@@ -127,11 +158,9 @@ def agregar_equipamiento(
     payload: EquipamientoCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current: Usuario = Depends(require_roles(["Administrador", "Coordinador"])),
+    current: Usuario = Depends(require_roles(ROLES_GESTION)),
 ):
-    equipo = SalaService(db).agregar_equipo(
-        sala_id, payload, usuario=current, request=request
-    )
+    equipo = _servicio(db, current).agregar_equipo(sala_id, payload, usuario=current, request=request)
     if not equipo:
         raise HTTPException(status_code=404, detail="Sala no encontrada")
-    return EquipamientoOut.model_validate(equipo)
+    return _equipo_out(equipo)
