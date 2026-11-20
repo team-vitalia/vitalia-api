@@ -43,7 +43,7 @@ def obtener_clinica_con_plan(db: Session, clinica_id: int) -> tuple[Clinica, Pla
 
 
 def verificar_limite_personal(db: Session, clinica_id: int) -> None:
-    _, plan = obtener_clinica_con_plan(db, clinica_id)
+    clinica, plan = obtener_clinica_con_plan(db, clinica_id)
 
     stmt_personal = select(func.count(Usuario.id_PK)).where(
         Usuario.clinica_id_FK == clinica_id,
@@ -51,21 +51,25 @@ def verificar_limite_personal(db: Session, clinica_id: int) -> None:
     )
     total_personal = db.scalar(stmt_personal) or 0
 
-    if total_personal >= plan.limite_personal:
+    limite_extra = getattr(clinica, "limite_personal_extra", 0) or 0
+    limite_permitido = plan.limite_personal + limite_extra
+
+    if total_personal >= limite_permitido:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Límite de personal alcanzado para el plan {plan.nombre}. Máximo permitido: {plan.limite_personal}"
+            detail=f"Límite de personal alcanzado para el plan {plan.nombre}. Máximo permitido: {limite_permitido}"
         )
 
 
 def verificar_limite_pacientes(db: Session, clinica_id: int) -> None:
-    _, plan = obtener_clinica_con_plan(db, clinica_id)
+    clinica, plan = obtener_clinica_con_plan(db, clinica_id)
 
     es_gratuito = (plan.nombre or "").strip().lower() == "gratuito"
     limite_mes = getattr(plan, "limite_pacientes_mes", None)
+    limite_extra = getattr(clinica, "limite_pacientes_extra", 0) or 0
 
     if es_gratuito or limite_mes is not None:
-        max_mes = limite_mes if limite_mes is not None else 20
+        max_mes = (limite_mes if limite_mes is not None else 20) + limite_extra
         ahora = datetime.now()
         inicio_mes = datetime(ahora.year, ahora.month, 1)
         if ahora.month == 12:
@@ -109,11 +113,12 @@ def verificar_limite_pacientes(db: Session, clinica_id: int) -> None:
         total_pacientes_usuarios = db.scalar(stmt_usuarios_paciente) or 0
 
         total_pacientes = max(total_pacientes_tabla, total_pacientes_usuarios)
+        limite_total_pacientes = plan.limite_pacientes + limite_extra
 
-        if total_pacientes >= plan.limite_pacientes:
+        if total_pacientes >= limite_total_pacientes:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Límite de pacientes alcanzado para el plan {plan.nombre}. Máximo permitido: {plan.limite_pacientes}"
+                detail=f"Límite de pacientes alcanzado para el plan {plan.nombre}. Máximo permitido: {limite_total_pacientes}"
             )
 
 

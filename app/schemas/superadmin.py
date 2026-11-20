@@ -121,6 +121,26 @@ class AuditoriaActividadOut(BaseModel):
     nombre_tabla: str | None = None
 
 
+class ClinicaExcepcionesOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    limite_pacientes_extra: int = 0
+    limite_personal_extra: int = 0
+    dias_gracia: int = 0
+    fecha_fin_gracia: datetime | None = None
+    motivo_excepcion: str | None = None
+
+
+class ClinicaExcepcionesUpdate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    limite_pacientes_extra: int = 0
+    limite_personal_extra: int = 0
+    dias_gracia: int = 0
+    fecha_fin_gracia: datetime | None = None
+    motivo_excepcion: str | None = None
+
+
 class MetricasClinicaIndividualOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -142,6 +162,96 @@ class MetricasClinicaIndividualOut(BaseModel):
     administradores: list[AdministradorClinicaOut] = []
     ultimos_accesos: list[AuditoriaAccesoOut] = []
     actividades_recientes: list[AuditoriaActividadOut] = []
+    excepciones: ClinicaExcepcionesOut | None = None
+
+
+class ImpersonarResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    access_token: str
+    token_type: str = "bearer"
+    usuario_id: int
+    nombre: str
+    correo: str
+    rol: str
+    clinica_id: int
+    nombre_clinica: str
+
+
+class ResetPasswordResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    mensaje: str
+    correo: str
+    password_temporal: str
+
+
+class DesbloquearResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    mensaje: str
+    total_desbloqueados: int
+
+
+class ResumenAuditoriaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    total_eventos: int = 0
+    total_consultas: int = 0
+    total_modificaciones: int = 0
+    usuarios_activos_conteo: int = 0
+
+
+class AuditoriaRegistroDetalleOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    usuario_id: int | None = None
+    usuario_nombre: str | None = None
+    usuario_correo: str | None = None
+    usuario_rol: str | None = None
+    accion: str
+    nombre_tabla: str | None = None
+    id_registro: int | None = None
+    descripcion: str | None = None
+    valores_antiguos: dict | None = None
+    valores_nuevos: dict | None = None
+    direccion_ip: str | None = None
+    marca_tiempo: datetime
+
+
+class AuditoriaPaginadaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    data: list[AuditoriaRegistroDetalleOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
+    resumen: ResumenAuditoriaOut | None = None
+
+
+class AvisoSuperadminCrear(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    titulo: str
+    mensaje: str
+    tipo: str = "informativo"
+    fecha_expiracion: datetime | None = None
+
+
+class AvisoSuperadminOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    clinica_id: int | None = None
+    titulo: str
+    mensaje: str
+    tipo: str
+    activo: bool
+    fecha_creacion: datetime
+    fecha_expiracion: datetime | None = None
+    creado_por_usuario_id: int | None = None
 
 
 class CancelacionItemOut(BaseModel):

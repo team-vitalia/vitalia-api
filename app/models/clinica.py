@@ -55,6 +55,34 @@ class Clinica(Base):
         nullable=True
     )
 
+    limite_pacientes_extra: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    limite_personal_extra: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    dias_gracia: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    fecha_fin_gracia: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True
+    )
+
+    motivo_excepcion: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True
+    )
+
     plan = relationship(
         "PlanSuscripcion",
         back_populates="clinicas"
@@ -87,6 +115,12 @@ class Clinica(Base):
 
     cancelaciones = relationship(
         "CancelacionSuscripcion",
+        back_populates="clinica",
+        cascade="all, delete-orphan"
+    )
+
+    avisos = relationship(
+        "AvisoSuperadmin",
         back_populates="clinica",
         cascade="all, delete-orphan"
     )

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
+from app.models.aviso_superadmin import AvisoSuperadmin
 from app.models.notificacion import Notificacion
 from app.models.usuario import Usuario
 from app.core.dependencies import get_current_user
@@ -15,13 +16,69 @@ router = APIRouter(
 )
 
 
+def sincronizar_avisos_superadmin(db: Session, usuario: Usuario):
+    if not usuario or not usuario.clinica_id_FK:
+        return
+    now = datetime.now()
+    avisos_activos = (
+        db.query(AvisoSuperadmin)
+        .filter(
+            AvisoSuperadmin.activo.is_(True),
+            (AvisoSuperadmin.clinica_id_FK == usuario.clinica_id_FK) | (AvisoSuperadmin.clinica_id_FK.is_(None)),
+            (AvisoSuperadmin.fecha_expiracion.is_(None)) | (AvisoSuperadmin.fecha_expiracion >= now),
+        )
+        .all()
+    )
+    if not avisos_activos:
+        return
+
+    cambios = False
+    for av in avisos_activos:
+        prefijo = f"[{av.titulo}]"
+        ya_existe = (
+            db.query(Notificacion)
+            .filter(
+                Notificacion.usuario_id_FK == usuario.id_PK,
+                Notificacion.mensaje.like(f"{prefijo}%")
+            )
+            .first()
+        )
+        if not ya_existe:
+            notif = Notificacion(
+                usuario_id_FK=usuario.id_PK,
+                mensaje=f"[{av.titulo}] {av.mensaje}",
+                tipo=(av.tipo or "aviso").lower(),
+                enlace="/notificaciones",
+                estado="no_leido",
+                creado_en=av.fecha_creacion or now,
+            )
+            db.add(notif)
+            cambios = True
+
+    if cambios:
+        db.commit()
+
+
+@router.get("/conteo-no-leidas")
+def contar_notificaciones_no_leidas(
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    sincronizar_avisos_superadmin(db, usuario_actual)
+    total = db.query(Notificacion).filter(
+        Notificacion.usuario_id_FK == usuario_actual.id_PK,
+        Notificacion.estado == "no_leido"
+    ).count()
+    return {"no_leidas": total}
+
+
 @router.get("/", response_model=List[NotificacionResponse])
 def listar_notificaciones(
     estado: Optional[str] = None,
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Devuelve el listado de notificaciones asociadas al usuario autenticado, ordenadas cronológicamente."""
+    sincronizar_avisos_superadmin(db, usuario_actual)
     consulta = db.query(Notificacion).filter(
         Notificacion.usuario_id_FK == usuario_actual.id_PK
     )
@@ -169,7 +226,7 @@ def listar_notificaciones_c2(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Lista las notificaciones del usuario autenticado (más recientes primero)."""
+    sincronizar_avisos_superadmin(db, usuario_actual)
     return NotificacionService(db).listar_de_usuario(usuario_actual.id_PK)
 
 
