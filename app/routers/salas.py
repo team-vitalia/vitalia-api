@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.database.connection import get_db
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, require_roles, verificar_modulo_salas
 from app.models.usuario import Usuario
 from app.schemas.common import PageMeta, PageResponse
 from app.schemas.equipamiento import EquipamientoCreate, EquipamientoOut

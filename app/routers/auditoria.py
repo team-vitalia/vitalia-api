@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import require_roles
+from app.core.dependencies import require_roles, verificar_modulo_auditoria
 from app.database.connection import get_db
 from app.models.usuario import Usuario
 from app.schemas.auditoria import AuditoriaOut
@@ -13,14 +13,13 @@ from app.schemas.common import PageMeta, PageResponse
 from app.services.auditoria_explicador import catalogo, explicar_lote
 from app.services.auditoria_service import AuditoriaService
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/auditoria",
     tags=["Auditoría"],
     dependencies=[Depends(verificar_modulo_auditoria)],
 )
-logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/api/auditoria", tags=["Auditoría"])
 
 ROLES_AUDITORIA = ["Administrador", "Coordinador"]
 
