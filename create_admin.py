@@ -1,3 +1,4 @@
+
 from getpass import getpass
 
 from app.database.connection import SessionLocal
@@ -9,6 +10,7 @@ def crear_admin():
     db = SessionLocal()
 
     try:
+        # Solicitar datos
         nombre = input("Nombre del administrador: ").strip()
         correo = input("Correo electrónico: ").strip()
 
@@ -23,6 +25,17 @@ def crear_admin():
             print("Las contraseñas no coinciden.")
             return
 
+        # Verificar que exista la clínica
+        clinica = db.query(Usuario).filter(
+            Usuario.clinica_id_FK == 1
+        ).first()
+
+        if not clinica:
+            print("No se encontró ningún usuario asociado a la clínica ID 1.")
+            print("Verifica que la clínica exista antes de crear el administrador.")
+            return
+
+        # Verificar correo existente
         usuario_existente = (
             db.query(Usuario)
             .filter(
@@ -35,7 +48,9 @@ def crear_admin():
             print("Ya existe un usuario con ese correo.")
             return
 
+        # Crear administrador
         nuevo_usuario = Usuario(
+            clinica_id_FK=1,
             nombre=nombre,
             correo_electronico=correo,
             hash_contrasena=generar_hash_password(password),
@@ -53,6 +68,7 @@ def crear_admin():
         print(f"Nombre: {nuevo_usuario.nombre}")
         print(f"Correo: {nuevo_usuario.correo_electronico}")
         print(f"Rol ID: {nuevo_usuario.rol_id_FK}")
+        print(f"Clínica ID: {nuevo_usuario.clinica_id_FK}")
 
     except Exception as error:
         db.rollback()

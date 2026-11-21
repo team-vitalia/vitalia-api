@@ -185,3 +185,62 @@ class ConsumoResponse(BaseModel):
     cantidad: int
     lotes: List[dict]
     stock_restante: int
+
+
+# 9. Entrada de mercancía por código de barras
+class LoteResumen(BaseModel):
+    inventario_id: int
+    numero_lote: Optional[str] = None
+    fecha_vencimiento: Optional[date] = None
+    stock_actual: int = 0
+    ubicacion: Optional[str] = None
+
+
+class DatosGS1(BaseModel):
+    """Lote y caducidad leídos de un código GS1 (DataMatrix / GS1-128), si los traía."""
+    numero_lote: Optional[str] = None
+    fecha_vencimiento: Optional[date] = None
+
+
+class ProductoCodigoOut(BaseModel):
+    medicamento_id: int
+    nombre: str
+    presentacion: Optional[str] = None
+    principio_activo: Optional[str] = None
+    codigo_barras: Optional[str] = None
+    tipo_articulo: str = "medicamento"
+    unidad_medida: Optional[str] = None
+    stock_actual: int = 0
+    stock_minimo: int = 0
+    # Los medicamentos exigen lote y caducidad; insumos y equipo, no.
+    requiere_lote: bool = True
+    ubicacion_sugerida: Optional[str] = None
+    lotes_recientes: List[LoteResumen] = []
+    datos_gs1: Optional[DatosGS1] = None
+
+
+class EntradaCodigoBarrasRequest(BaseModel):
+    codigo_barras: str = Field(min_length=1, max_length=200)
+    cantidad: int = Field(gt=0, le=100000)
+    numero_lote: Optional[str] = Field(default=None, max_length=100)
+    fecha_vencimiento: Optional[date] = None
+    ubicacion: Optional[str] = Field(default=None, max_length=150)
+
+
+class EntradaCodigoBarrasResponse(BaseModel):
+    medicamento_id: int
+    medicamento: str
+    presentacion: Optional[str] = None
+    unidad_medida: Optional[str] = None
+    codigo_barras: Optional[str] = None
+    inventario_id: int
+    numero_lote: Optional[str] = None
+    fecha_vencimiento: Optional[date] = None
+    cantidad_agregada: int
+    stock_lote_anterior: int
+    stock_lote_nuevo: int
+    stock_total: int
+    # True si se creó un lote nuevo; False si se sumó a un lote existente (mismo lote y caducidad)
+    lote_nuevo: bool
+    movimiento_id: Optional[int] = None
+    mensaje: str

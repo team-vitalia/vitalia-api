@@ -28,16 +28,21 @@ from app.schemas.almacen import (
     DispensacionOut,
     DispensarRequest,
     DispensarResponse,
+    DatosGS1,
+    EntradaCodigoBarrasRequest,
+    EntradaCodigoBarrasResponse,
     EvaluarInteraccionRequest,
     EvaluarInteraccionResponse,
     InteraccionResultado,
     InventarioCreate,
     InventarioResponse,
+    LoteResumen,
     MedicamentoResponse,
     MovimientoManualRequest,
     MovimientoOut,
     PresentacionCreate,
     PresentacionOut,
+    ProductoCodigoOut,
     ResumenAlmacen,
 )
 from app.schemas.receta import RecetaDetalle
@@ -222,6 +227,121 @@ def registrar_movimiento_lote(
     db.commit()
     db.refresh(lote)
     return lote
+
+
+# 5b. Entrada de mercancía con lector de código de barras
+@router.get("/codigo-barras", response_model=ProductoCodigoOut)
+def consultar_codigo_barras(
+    codigo: str = Query(..., min_length=1, max_length=200, description="Código leído por el lector o la cámara"),
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    """Identifica el producto por su código de barras (solo de la clínica del usuario).
+
+    Devuelve existencias, lotes recientes y, si el código era GS1, el lote y la caducidad que traía.
+    """
+    exigir_rol(usuario_actual, ROLES_ALMACEN, "Solo almacén o administración pueden dar entrada de productos")
+    try:
+        med, gs1 = inv.resolver_codigo_barras(db, codigo, clinica_de(usuario_actual))
+    except inv.InventarioError as e:
+        raise _error(e)
+
+    lotes = (
+        db.query(Inventario)
+        .filter(Inventario.medicamento_id_FK == med.id_PK)
+        .order_by(Inventario.id_PK.desc())
+        .limit(5)
+        .all()
+    )
+    return ProductoCodigoOut(
+        medicamento_id=med.id_PK,
+        nombre=med.nombre,
+        presentacion=med.presentacion,
+        principio_activo=med.principio_activo,
+        codigo_barras=med.codigo_barras,
+        tipo_articulo=med.tipo_articulo or "medicamento",
+        unidad_medida=med.unidad_medida,
+        stock_actual=inv.stock_disponible(db, med.id_PK),
+        stock_minimo=med.stock_minimo or 0,
+        requiere_lote=inv.requiere_lote(med),
+        ubicacion_sugerida=next((l.ubicacion for l in lotes if l.ubicacion), None),
+        lotes_recientes=[
+            LoteResumen(
+                inventario_id=l.id_PK,
+                numero_lote=l.numero_lote,
+                fecha_vencimiento=l.fecha_vencimiento,
+                stock_actual=int(l.stock_actual or 0),
+                ubicacion=l.ubicacion,
+            )
+            for l in lotes
+        ],
+        datos_gs1=(
+            DatosGS1(numero_lote=gs1.get("lote"), fecha_vencimiento=gs1.get("caducidad")) if gs1 else None
+        ),
+    )
+
+
+@router.post(
+    "/entradas/codigo-barras",
+    response_model=EntradaCodigoBarrasResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def registrar_entrada_codigo_barras(
+    payload: EntradaCodigoBarrasRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    """Da entrada por código de barras: suma al lote si coincide lote + caducidad o crea uno nuevo.
+
+    Actualiza el stock, registra el movimiento de Entrada y deja rastro en la auditoría.
+    """
+    exigir_rol(usuario_actual, ROLES_ALMACEN, "Solo almacén o administración pueden dar entrada de productos")
+    try:
+        med, gs1 = inv.resolver_codigo_barras(db, payload.codigo_barras, clinica_de(usuario_actual))
+        r = inv.registrar_entrada_por_codigo(
+            db, med, payload.cantidad, usuario_actual.id_PK,
+            numero_lote=payload.numero_lote,
+            fecha_vencimiento=payload.fecha_vencimiento,
+            ubicacion=payload.ubicacion,
+        )
+    except inv.InventarioError as e:
+        db.rollback()
+        raise _error(e)
+
+    lote = r["lote"]
+    registrar_auditoria(
+        db, usuario_actual, "CREAR" if r["lote_nuevo"] else "ACTUALIZAR", "inventario", lote.id_PK,
+        None if r["lote_nuevo"] else {"stock_actual": r["stock_lote_anterior"]},
+        serializar({
+            "stock_actual": r["stock_lote_nuevo"],
+            "numero_lote": lote.numero_lote,
+            "fecha_vencimiento": lote.fecha_vencimiento,
+            "cantidad_agregada": payload.cantidad,
+        }),
+        ip=ip_desde_request(request),
+        descripcion=f"Entrada por código de barras: {med.nombre} (+{payload.cantidad})",
+    )
+    db.commit()
+
+    accion = "lote nuevo" if r["lote_nuevo"] else "sumado al lote existente"
+    return EntradaCodigoBarrasResponse(
+        medicamento_id=med.id_PK,
+        medicamento=med.nombre,
+        presentacion=med.presentacion,
+        unidad_medida=med.unidad_medida,
+        codigo_barras=med.codigo_barras,
+        inventario_id=lote.id_PK,
+        numero_lote=lote.numero_lote,
+        fecha_vencimiento=lote.fecha_vencimiento,
+        cantidad_agregada=payload.cantidad,
+        stock_lote_anterior=r["stock_lote_anterior"],
+        stock_lote_nuevo=r["stock_lote_nuevo"],
+        stock_total=r["stock_total"],
+        lote_nuevo=r["lote_nuevo"],
+        movimiento_id=r["movimiento"].id_PK,
+        mensaje=f"Entrada registrada: +{payload.cantidad} de {med.nombre} ({accion}).",
+    )
 
 
 @router.get("/movimientos", response_model=List[MovimientoOut])

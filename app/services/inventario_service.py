@@ -9,6 +9,7 @@ from datetime import date
 from sqlalchemy import case, func, or_
 from sqlalchemy.orm import Session
 
+from app.core.codigo_barras import normalizar_codigo, parsear_gs1, variantes_codigo
 from app.models.dispensacion import Dispensacion
 from app.models.inventario import Inventario
 from app.models.item_receta import ItemReceta
@@ -358,3 +359,131 @@ def consumir_fefo(
     if restante > 0:
         raise InventarioError("Las existencias cambiaron durante el consumo; intenta de nuevo", 409)
     return usados
+
+
+# ---------------------------------------------------------------- entrada por código de barras
+def resolver_codigo_barras(
+    db: Session, codigo_crudo: str, clinica_id: int | None
+) -> tuple[Medicamento, dict | None]:
+    """Busca el producto de la clínica por su código de barras.
+
+    Devuelve (producto, datos_gs1). `datos_gs1` solo viene cuando el código era un GS1 completo
+    (GTIN + lote/caducidad) y el producto se encontró por su GTIN.
+    """
+    limpio = normalizar_codigo(codigo_crudo)
+    if not limpio:
+        raise InventarioError("Escanea o escribe un código de barras", 422)
+
+    def _buscar(codigos: list[str]) -> list[Medicamento]:
+        q = db.query(Medicamento).filter(Medicamento.codigo_barras.in_(codigos))
+        if clinica_id is not None:
+            q = q.filter(Medicamento.clinica_id_FK == clinica_id)
+        return q.all()
+
+    meds = _buscar(variantes_codigo(limpio))
+    datos_gs1 = None
+    if not meds:
+        gs1 = parsear_gs1(str(codigo_crudo))
+        if gs1:
+            meds = _buscar(variantes_codigo(gs1["gtin"]))
+            if meds:
+                datos_gs1 = gs1
+
+    if not meds:
+        raise InventarioError(
+            f"No existe ningún producto con el código de barras {limpio}. "
+            "Regístralo primero en el catálogo de medicamentos e insumos.",
+            404,
+        )
+    if len(meds) > 1:
+        raise InventarioError(
+            f"El código {limpio} está asignado a {len(meds)} productos. "
+            "Corrige el catálogo para que cada código pertenezca a un solo producto.",
+            409,
+        )
+    return meds[0], datos_gs1
+
+
+def requiere_lote(medicamento: Medicamento) -> bool:
+    """Los medicamentos exigen lote y caducidad; insumos y equipo no."""
+    return (medicamento.tipo_articulo or "medicamento") == "medicamento"
+
+
+def registrar_entrada_por_codigo(
+    db: Session,
+    medicamento: Medicamento,
+    cantidad: int,
+    usuario_id: int | None,
+    numero_lote: str | None = None,
+    fecha_vencimiento: date | None = None,
+    ubicacion: str | None = None,
+) -> dict:
+    """Da entrada a `cantidad` unidades de un producto ya identificado.
+
+    * Mismo lote + misma caducidad  → suma al lote existente.
+    * Lote o caducidad distintos    → crea un lote nuevo (el producto y su código no cambian).
+    * Mismo número de lote con otra caducidad → 409 (probable error de captura).
+    Deja un movimiento de tipo Entrada con stock anterior/nuevo. El commit lo hace el llamador.
+    """
+    if cantidad is None or cantidad <= 0:
+        raise InventarioError("La cantidad debe ser mayor a 0", 422)
+
+    lote_txt = (numero_lote or "").strip() or None
+    ubicacion = (ubicacion or "").strip() or None
+
+    if requiere_lote(medicamento) and (not lote_txt or not fecha_vencimiento):
+        raise InventarioError("Para medicamentos captura el número de lote y la fecha de caducidad", 422)
+    if fecha_vencimiento and fecha_vencimiento < date.today():
+        raise InventarioError(
+            "La fecha de caducidad ya pasó; no se puede dar entrada a producto vencido", 422
+        )
+
+    # Lotes del mismo producto con ese número de lote (o sin número), bloqueados para evitar carreras
+    q = db.query(Inventario).filter(Inventario.medicamento_id_FK == medicamento.id_PK)
+    if lote_txt:
+        q = q.filter(func.lower(Inventario.numero_lote) == lote_txt.lower())
+    else:
+        q = q.filter(Inventario.numero_lote.is_(None))
+    existentes = q.order_by(Inventario.id_PK.asc()).with_for_update().all()
+
+    lote = next((l for l in existentes if l.fecha_vencimiento == fecha_vencimiento), None)
+    if lote is None and lote_txt and existentes:
+        otra = existentes[0].fecha_vencimiento
+        otra_txt = otra.strftime("%d/%m/%Y") if otra else "sin fecha"
+        raise InventarioError(
+            f"El lote {lote_txt} ya existe con caducidad {otra_txt}. "
+            "Revisa la fecha capturada o usa otro número de lote.",
+            409,
+        )
+
+    if lote is None:
+        lote = Inventario(
+            medicamento_id_FK=medicamento.id_PK,
+            numero_lote=lote_txt,
+            stock_actual=0,
+            fecha_vencimiento=fecha_vencimiento,
+            ubicacion=ubicacion,
+            fecha_recepcion=date.today(),
+        )
+        db.add(lote)
+        db.flush()
+        nuevo_lote = True
+    else:
+        nuevo_lote = False
+        if ubicacion and not lote.ubicacion:
+            lote.ubicacion = ubicacion
+
+    anterior = int(lote.stock_actual or 0)
+    nuevo = anterior + cantidad
+    lote.stock_actual = nuevo
+    mov = registrar_movimiento(db, lote, cantidad, TIPO_ENTRADA, usuario_id, anterior, nuevo)
+    db.flush()
+
+    return {
+        "lote": lote,
+        "movimiento": mov,
+        "lote_nuevo": nuevo_lote,
+        "stock_lote_anterior": anterior,
+        "stock_lote_nuevo": nuevo,
+        "stock_total": stock_disponible(db, medicamento.id_PK),
+    }
