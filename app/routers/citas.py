@@ -252,35 +252,56 @@ def obtener_citas_transferidas(
     return resultado
 
 
-@router.get("/mis-citas", response_model=list[CitaResponse])
+# Quita el response_model de esta línea
+@router.get("/mis-citas") 
 def obtener_mis_citas(
     db: Session = Depends(get_db),
     usuario_actual: Usuario = Depends(get_current_user)
 ):
-    """Citas del paciente autenticado (incluye si no se realizaron)."""
     if usuario_actual.rol_id_FK != 3:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Solo los pacientes pueden ver sus citas"
-        )
+        raise HTTPException(status_code=403, detail="Solo pacientes")
 
-    paciente = (
-        db.query(Paciente)
-        .filter(Paciente.usuario_id_FK == usuario_actual.id_PK)
-        .first()
-    )
+    paciente = db.query(Paciente).filter(Paciente.usuario_id_FK == usuario_actual.id_PK).first()
     if not paciente:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No tienes un perfil de paciente registrado"
-        )
+        raise HTTPException(status_code=404, detail="No hay perfil")
 
-    return (
+    citas = (
         db.query(Cita)
+        .options(
+            joinedload(Cita.doctor).joinedload(Doctor.usuario),
+            joinedload(Cita.doctor).joinedload(Doctor.especialidad),
+            joinedload(Cita.sala)
+        )
         .filter(Cita.paciente_id_FK == paciente.id_PK)
         .order_by(Cita.fecha.desc(), Cita.hora_inicio.desc())
         .all()
     )
+
+    resultado = []
+    for cita in citas:
+        doctor = cita.doctor
+        usuario_doctor = doctor.usuario if doctor else None
+        especialidad = doctor.especialidad if doctor else None
+        sala = cita.sala
+
+        resultado.append({
+            "id_PK": cita.id_PK,
+            "fecha": str(cita.fecha) if cita.fecha else None,
+            "hora_inicio": str(cita.hora_inicio) if cita.hora_inicio else None,
+            "hora_fin": str(cita.hora_fin) if cita.hora_fin else None,
+            "estado": cita.estado,
+            "motivo": cita.motivo,
+            "sala_nombre": sala.nombre if sala else None,
+            "sala_piso": str(sala.piso) if sala and sala.piso else None,
+            "doctor_nombre": usuario_doctor.nombre if usuario_doctor else None,
+            "especialidad": especialidad.nombre if especialidad else None,
+            "paciente_id_FK": cita.paciente_id_FK,
+            "doctor_id_FK": cita.doctor_id_FK,
+            "notas": cita.notas,
+            "creado_por": cita.creado_por,
+        })
+
+    return resultado
 
 
 @router.get("/", response_model=list[CitaResponse])
