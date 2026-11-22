@@ -47,3 +47,23 @@ class MedicamentoResponse(BaseModel):
     stock_actual: int = 0
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MedicamentoImportar(BaseModel):
+    """Excel (.xlsx) codificado en base64. Va como JSON para no requerir multipart."""
+    archivo_base64: str = Field(min_length=1)
+    # omitir = los que ya existen se dejan igual · actualizar = se completan con los datos del archivo
+    modo: Literal["omitir", "actualizar"] = "omitir"
+
+
+class ErrorFilaImportacion(BaseModel):
+    fila: int
+    mensaje: str
+
+
+class ImportacionMedicamentosResponse(BaseModel):
+    total_filas: int
+    creados: int
+    actualizados: int
+    omitidos: int
+    errores: list[ErrorFilaImportacion] = []
