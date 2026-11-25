@@ -11,6 +11,7 @@ class ConsultaCrear(BaseModel):
     signos_vitales: dict | None = None
     fecha_proxima_cita: date | None = None
     codigo_cie10: str | None = Field(default=None, max_length=20)
+    signos_vitales: dict | None = None  # 👈 DEBE SER UN DICT ABIERTO
     # Marca la cita como «completada» al registrar la consulta
     finalizar_cita: bool = True
 

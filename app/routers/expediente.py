@@ -129,6 +129,7 @@ def _armar(db: Session, paciente: Paciente, *, vista_paciente: bool) -> dict:
                 "estado": r.estado,
                 "creado_en": r.creado_en,
                 "doctor": r.doctor.nombre if r.doctor else None,
+                "indicaciones_generales": r.indicaciones_generales, # 👈 AGREGAR ESTA LÍNEA
                 "items": [
                     {
                         "id_PK": it.id_PK,

@@ -56,3 +56,9 @@ class Doctor(Base):
         if self.usuario and self.usuario.nombre:
             return self.usuario.nombre
         return f"Doctor #{self.id_PK}"
+    @property
+    def nombre_completo(self) -> str:
+        if self.usuario:
+            apellidos = f"{self.usuario.apellido_paterno or ''} {self.usuario.apellido_materno or ''}".strip()
+            return f"{self.usuario.nombre} {apellidos}".strip()
+        return f"Doctor #{self.id_PK}"

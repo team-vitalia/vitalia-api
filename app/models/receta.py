@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.connection import Base
@@ -41,6 +41,11 @@ class Receta(Base):
 
     hash_firma: Mapped[str | None] = mapped_column(
         String(255)
+    )
+
+    # 👇 NUEVO CAMPO 👇
+    indicaciones_generales: Mapped[str | None] = mapped_column(
+        Text
     )
 
     paciente = relationship("Paciente")

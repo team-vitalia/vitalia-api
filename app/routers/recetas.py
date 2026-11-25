@@ -43,6 +43,11 @@ def _items_de(db: Session, receta_id: int) -> list[ItemReceta]:
 
 def _detalle(db: Session, receta: Receta, con_disponibilidad: bool = True) -> dict:
     items = _items_de(db, receta.id_PK)
+    
+    signos_vitales = {}
+    if receta.consulta and receta.consulta.signos_vitales:
+        signos_vitales = receta.consulta.signos_vitales
+
     return {
         "id_PK": receta.id_PK,
         "paciente_id_FK": receta.paciente_id_FK,
@@ -52,10 +57,11 @@ def _detalle(db: Session, receta: Receta, con_disponibilidad: bool = True) -> di
         "creado_en": receta.creado_en,
         "codigo_qr": receta.codigo_qr,
         "paciente": nombre_completo(receta.paciente),
-        "doctor": receta.doctor.nombre if receta.doctor else None,
-        # 👇 AGREGAMOS ESTA LÍNEA 👇
+        "doctor": receta.doctor.nombre_completo if receta.doctor else None,
+        "especialidad": receta.doctor.especialidad.nombre if receta.doctor and receta.doctor.especialidad else None,
         "numero_licencia": receta.doctor.numero_licencia if receta.doctor else None,
-        # 👆 FIN DE LA LÍNEA NUEVA 👆
+        "signos_vitales": signos_vitales,
+        "indicaciones_generales": receta.indicaciones_generales,  # 👈 NUEVO CAMPO
         "items": [
             {
                 "id_PK": it.id_PK,
@@ -182,7 +188,6 @@ def crear_receta(
     try:
         consulta = _consulta_para_receta(db, datos, doctor, paciente)
 
-        # 👇 GENERAMOS EL CÓDIGO ÚNICO PARA EL QR 👇
         codigo_unico = f"VITALIA-REC-{uuid.uuid4().hex[:8].upper()}"
 
         receta = Receta(
@@ -190,7 +195,8 @@ def crear_receta(
             doctor_id_FK=doctor.id_PK,
             consulta_id_FK=consulta.id_PK,
             estado=inv.ESTADO_RECETA_ACTIVA,
-            codigo_qr=codigo_unico, # Guardamos el código
+            codigo_qr=codigo_unico,
+            indicaciones_generales=datos.indicaciones_generales,  # 👈 SE GUARDA EL NUEVO CAMPO
         )
         db.add(receta)
         db.flush()

@@ -16,13 +16,11 @@ class ItemRecetaCrear(BaseModel):
 
 class RecetaCrear(BaseModel):
     paciente_id_FK: int
-    # Se acepta `consulta_id_FK` (consulta ya registrada) o `cita_id_FK`:
-    # con la cita, el backend busca o crea la consulta del médico.
     consulta_id_FK: int | None = None
     cita_id_FK: int | None = None
     items: list[ItemRecetaCrear] = Field(min_length=1)
-    # El médico confirma que revisó las interacciones graves y desea continuar.
     confirmar_interacciones: bool = False
+    indicaciones_generales: str | None = None  # 👈 NUEVO CAMPO
 
     @model_validator(mode="after")
     def _requiere_consulta_o_cita(self):
@@ -51,7 +49,6 @@ class DisponibilidadItem(BaseModel):
     cantidad_dispensada: int
     cantidad_pendiente: int
     stock_disponible: int
-    # disponible | parcial | no_disponible | dispensado
     estado: str
 
 
@@ -72,8 +69,11 @@ class ItemRecetaOut(BaseModel):
 class RecetaDetalle(RecetaResponse):
     paciente: str | None = None
     doctor: str | None = None
-    codigo_qr: str | None = None        # 👈 AGREGAR
-    numero_licencia: str | None = None  # 👈 AGREGAR
+    especialidad: str | None = None
+    codigo_qr: str | None = None
+    numero_licencia: str | None = None
+    signos_vitales: dict | None = None
+    indicaciones_generales: str | None = None  # 👈 NUEVO CAMPO
     items: list[ItemRecetaOut] = []
     disponibilidad: list[DisponibilidadItem] = []
 
