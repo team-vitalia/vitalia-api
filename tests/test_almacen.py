@@ -3,10 +3,15 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 from datetime import date
+from types import SimpleNamespace
 
+from app.core.config import settings
 from app.database.connection import get_db
 from app.routers.almacen import router
 from app.core.dependencies import get_current_user
+from app.models.medicamento import Medicamento
+from app.schemas.almacen import EvaluacionInteraccionesIA, InteraccionIAPrediccion
+from app.services.groq_service import GroqClinicalService
 
 mock_user = MagicMock()
 mock_user.id_PK = 1
@@ -45,6 +50,9 @@ def test_listar_medicamentos_exito():
     mock_med.descripcion = "Analgésico"
     mock_med.codigo_barras = "7501234567890"
     mock_med.categoria = "Analgésicos"
+    mock_med.tipo_articulo = "medicamento"
+    mock_med.unidad_medida = "tableta"
+    mock_med.stock_minimo = 10
 
     mock_session.query.return_value.all.return_value = [mock_med]
 
@@ -158,3 +166,90 @@ def test_evaluar_interacciones_con_resultado():
     assert data["detalles"][0]["medicamento_1"] == "Warfarina"
     assert data["detalles"][0]["medicamento_2"] == "Aspirina"
     assert data["detalles"][0]["severidad"] == "Alta"
+
+
+def preparar_medicamentos_para_ia():
+    mock_session.query.side_effect = None
+    mock_user.clinica_id_FK = 10
+    mock_user.clinica = SimpleNamespace(
+        plan=SimpleNamespace(limite_ia_mensual=50),
+    )
+    primero = MagicMock(
+        id_PK=1,
+        nombre="DEMO Warfarina",
+        principio_activo="Warfarina",
+        presentacion="Tableta demo",
+    )
+    segundo = MagicMock(
+        id_PK=2,
+        nombre="DEMO Naproxeno",
+        principio_activo="Naproxeno",
+        presentacion="Tableta demo",
+    )
+    mock_session.query.return_value.filter.return_value.filter.return_value.all.return_value = [
+        primero,
+        segundo,
+    ]
+
+
+def test_evaluar_interacciones_ia_con_resultado(monkeypatch):
+    preparar_medicamentos_para_ia()
+
+    async def fake_analisis(self, medicamentos):
+        assert [m["principio_activo"] for m in medicamentos] == [
+            "Warfarina",
+            "Naproxeno",
+        ]
+        return EvaluacionInteraccionesIA(
+            detalles=[
+                InteraccionIAPrediccion(
+                    medicamento_1="Warfarina",
+                    medicamento_2="Naproxeno",
+                    severidad="incierta",
+                    descripcion="Resultado simulado para comprobar el contrato de la API.",
+                )
+            ],
+            observaciones="Resultado de prueba; no usar para atención clínica.",
+        )
+
+    monkeypatch.setattr(
+        GroqClinicalService,
+        "analizar_interacciones_medicamentos",
+        fake_analisis,
+    )
+    response = client.post(
+        "/api/almacen/evaluar-interacciones-ia",
+        json={"medicamentos_ids": [1, 2]},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["tiene_interaccion"] is True
+    assert data["fuente"] == "Groq IA"
+    assert data["detalles"][0]["accion_requerida"]
+    assert "sustituye" in data["aviso"].lower()
+
+
+def test_evaluar_interacciones_ia_rechaza_plan_sin_ia():
+    mock_user.clinica = SimpleNamespace(
+        plan=SimpleNamespace(limite_ia_mensual=0),
+    )
+    response = client.post(
+        "/api/almacen/evaluar-interacciones-ia",
+        json={"medicamentos_ids": [1, 2]},
+    )
+
+    assert response.status_code == 403
+    assert "no incluye análisis con IA" in response.json()["detail"]
+
+
+def test_evaluar_interacciones_ia_informa_clave_no_configurada(monkeypatch):
+    preparar_medicamentos_para_ia()
+    monkeypatch.setattr(settings, "GROQ_API_KEY", "")
+    response = client.post(
+        "/api/almacen/evaluar-interacciones-ia",
+        json={"medicamentos_ids": [1, 2]},
+    )
+
+    assert response.status_code == 503
+    assert "no está configurada" in response.json()["detail"]

@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,7 +62,6 @@ class InteraccionResultado(BaseModel):
 class EvaluarInteraccionResponse(BaseModel):
     tiene_interaccion: bool
     detalles: List[InteraccionResultado]
-
 
 # 4. Movimientos de inventario (entradas, salidas, mermas y ajustes)
 class MovimientoManualRequest(BaseModel):
@@ -244,3 +243,30 @@ class EntradaCodigoBarrasResponse(BaseModel):
     lote_nuevo: bool
     movimiento_id: Optional[int] = None
     mensaje: str
+
+
+class EvaluarInteraccionIARequest(BaseModel):
+    medicamentos_ids: List[int] = Field(min_length=2, max_length=20)
+
+
+class InteraccionIAPrediccion(BaseModel):
+    medicamento_1: str
+    medicamento_2: str
+    severidad: Literal["leve", "moderada", "grave", "incierta"]
+    descripcion: str = Field(min_length=1, max_length=1000)
+
+
+class EvaluacionInteraccionesIA(BaseModel):
+    detalles: List[InteraccionIAPrediccion] = Field(max_length=50)
+    observaciones: str = Field(min_length=1, max_length=1000)
+
+
+class EvaluarInteraccionIAResponse(BaseModel):
+    tiene_interaccion: bool
+    detalles: List[InteraccionResultado]
+    observaciones: str
+    fuente: Literal["Groq IA"] = "Groq IA"
+    aviso: str = (
+        "Análisis generado por IA como apoyo informativo. No descarta riesgos ni "
+        "sustituye fuentes farmacológicas confiables ni el criterio de un profesional."
+    )

@@ -31,6 +31,8 @@ from app.schemas.almacen import (
     DatosGS1,
     EntradaCodigoBarrasRequest,
     EntradaCodigoBarrasResponse,
+    EvaluarInteraccionIARequest,
+    EvaluarInteraccionIAResponse,
     EvaluarInteraccionRequest,
     EvaluarInteraccionResponse,
     InteraccionResultado,
@@ -57,6 +59,7 @@ router = APIRouter(
     tags=["Almacén e Interacciones"],
     dependencies=[Depends(verificar_modulo_almacen)],
 )
+from app.services.groq_service import GroqClinicalService
 
 ROLES_ALMACEN = [ROL_ADMIN, ROL_ALMACEN]
 ROLES_LECTURA_ALMACEN = [ROL_ADMIN, ROL_ALMACEN, ROL_COORDINADOR]
@@ -383,8 +386,6 @@ def listar_movimientos(
         }
         for m in movs
     ]
-
-
 @router.post("/consumos", response_model=ConsumoResponse, status_code=status.HTTP_201_CREATED)
 def registrar_consumo(
     payload: ConsumoRequest,
@@ -713,3 +714,77 @@ def _medicamento_de_clinica(db: Session, medicamento_id: int, usuario: Usuario) 
     if clinica_id is not None and med.clinica_id_FK != clinica_id:
         raise HTTPException(status_code=403, detail="No tienes acceso a este medicamento")
     return med
+    return {"tiene_interaccion": bool(detalles), "detalles": detalles}
+
+
+@router.post(
+    "/evaluar-interacciones-ia",
+    response_model=EvaluarInteraccionIAResponse,
+)
+async def evaluar_interacciones_ia(
+    payload: EvaluarInteraccionIARequest,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    exigir_rol(
+        usuario_actual,
+        [ROL_ADMIN, ROL_DOCTOR],
+        "Solo un administrador o doctor puede consultar el análisis de interacciones con IA.",
+    )
+
+    clinica = getattr(usuario_actual, "clinica", None)
+    plan = getattr(clinica, "plan", None)
+    if not plan or int(getattr(plan, "limite_ia_mensual", 0) or 0) <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="El plan de tu clínica no incluye análisis con IA.",
+        )
+
+    ids = list(dict.fromkeys(payload.medicamentos_ids))
+    if len(ids) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Selecciona al menos dos medicamentos distintos.",
+        )
+
+    query = db.query(Medicamento).filter(Medicamento.id_PK.in_(ids))
+    clinica_id = clinica_de(usuario_actual)
+    if clinica_id is not None:
+        query = query.filter(Medicamento.clinica_id_FK == clinica_id)
+    medicamentos = query.all()
+
+    if {med.id_PK for med in medicamentos} != set(ids):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Uno o más medicamentos no existen en tu clínica.",
+        )
+
+    medicamentos_por_id = {med.id_PK: med for med in medicamentos}
+    datos_medicamentos = [
+        {
+            "nombre": medicamentos_por_id[medicamento_id].nombre,
+            "principio_activo": medicamentos_por_id[medicamento_id].principio_activo,
+            "presentacion": medicamentos_por_id[medicamento_id].presentacion,
+        }
+        for medicamento_id in ids
+    ]
+
+    analisis = await GroqClinicalService(db).analizar_interacciones_medicamentos(
+        datos_medicamentos,
+    )
+    detalles = [
+        InteraccionResultado(
+            medicamento_1=item.medicamento_1,
+            medicamento_2=item.medicamento_2,
+            severidad=item.severidad,
+            descripcion=item.descripcion,
+            accion_requerida="Verificar con una fuente farmacológica confiable y un profesional de salud.",
+        )
+        for item in analisis.detalles
+    ]
+
+    return EvaluarInteraccionIAResponse(
+        tiene_interaccion=bool(detalles),
+        detalles=detalles,
+        observaciones=analisis.observaciones,
+    )
