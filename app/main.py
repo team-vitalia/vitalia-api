@@ -232,6 +232,16 @@ def obtener_usuario_actual(
     return {
         "id": usuario.id_PK,
         "nombre": usuario.nombre,
+        "apellido_paterno": usuario.apellido_paterno,
+        "apellido_materno": usuario.apellido_materno,
+        "nombre_completo": " ".join(
+            parte for parte in [
+                usuario.nombre,
+                usuario.apellido_paterno,
+                usuario.apellido_materno
+            ]
+            if parte and parte.strip()
+        ),
         "correo": usuario.correo_electronico,
         "rol_id": usuario.rol_id_FK,
         "estado": usuario.estado,
