@@ -28,6 +28,10 @@ from app.services.interacciones_service import (
 )
 from app.utils.auditoria import ip_desde_request, registrar_auditoria
 
+# 👇 IMPORTAMOS LOS MODELOS PARA LA CONSULTA DIRECTA 👇
+from app.models.doctor_especialidad import DoctorEspecialidad
+from app.models.especialidad import Especialidad
+
 router = APIRouter(prefix="/api/recetas", tags=["Recetas"])
 
 
@@ -48,6 +52,23 @@ def _detalle(db: Session, receta: Receta, con_disponibilidad: bool = True) -> di
     if receta.consulta and receta.consulta.signos_vitales:
         signos_vitales = receta.consulta.signos_vitales
 
+    # 👇 LEEMOS DEL SNAPSHOT, SI NO EXISTE BUSCAMOS EN VIVO 👇
+    if receta.datos_doctor_snapshot and receta.datos_doctor_snapshot.get("especialidades"):
+        doctor_especialidades = receta.datos_doctor_snapshot["especialidades"]
+    else:
+        doctor_especialidades = []
+        if receta.doctor_id_FK:
+            de_list = db.query(DoctorEspecialidad).filter(
+                DoctorEspecialidad.doctor_id_FK == receta.doctor_id_FK
+            ).all()
+            for de in de_list:
+                if de.cedula_profesional:
+                    esp = db.query(Especialidad).filter(Especialidad.id_PK == de.especialidad_id_FK).first()
+                    doctor_especialidades.append({
+                        "especialidad": esp.nombre if esp else "Especialidad",
+                        "cedula": de.cedula_profesional
+                    })
+
     return {
         "id_PK": receta.id_PK,
         "paciente_id_FK": receta.paciente_id_FK,
@@ -60,8 +81,11 @@ def _detalle(db: Session, receta: Receta, con_disponibilidad: bool = True) -> di
         "doctor": receta.doctor.nombre_completo if receta.doctor else None,
         "especialidad": receta.doctor.especialidad.nombre if receta.doctor and receta.doctor.especialidad else None,
         "numero_licencia": receta.doctor.numero_licencia if receta.doctor else None,
+        
+        "doctor_especialidades": doctor_especialidades, # 👈 AQUÍ SE ENVÍAN LAS CÉDULAS
+        
         "signos_vitales": signos_vitales,
-        "indicaciones_generales": receta.indicaciones_generales,  # 👈 NUEVO CAMPO
+        "indicaciones_generales": receta.indicaciones_generales,
         "items": [
             {
                 "id_PK": it.id_PK,
@@ -190,13 +214,28 @@ def crear_receta(
 
         codigo_unico = f"VITALIA-REC-{uuid.uuid4().hex[:8].upper()}"
 
+        # 👇 CREAMOS EL SNAPSHOT DE LAS ESPECIALIDADES 👇
+        de_list = db.query(DoctorEspecialidad).filter(
+            DoctorEspecialidad.doctor_id_FK == doctor.id_PK
+        ).all()
+        
+        snapshot_especialidades = []
+        for de in de_list:
+            if de.cedula_profesional:
+                esp = db.query(Especialidad).filter(Especialidad.id_PK == de.especialidad_id_FK).first()
+                snapshot_especialidades.append({
+                    "especialidad": esp.nombre if esp else "Especialidad",
+                    "cedula": de.cedula_profesional
+                })
+
         receta = Receta(
             paciente_id_FK=paciente.id_PK,
             doctor_id_FK=doctor.id_PK,
             consulta_id_FK=consulta.id_PK,
             estado=inv.ESTADO_RECETA_ACTIVA,
             codigo_qr=codigo_unico,
-            indicaciones_generales=datos.indicaciones_generales,  # 👈 SE GUARDA EL NUEVO CAMPO
+            indicaciones_generales=datos.indicaciones_generales,
+            datos_doctor_snapshot={"especialidades": snapshot_especialidades}, # 👈 GUARDAMOS LA FOTO
         )
         db.add(receta)
         db.flush()
