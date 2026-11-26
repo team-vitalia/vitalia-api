@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 from app.core.validaciones import validar_rfc
@@ -24,10 +23,16 @@ class DoctorCrear(BaseModel):
         return _normalizar_rfc_opcional(v)
 
 
+class EspecialidadPerfilActualizar(BaseModel):
+    id_PK: int
+    cedula_profesional: str | None = Field(default=None, max_length=100)
+
+
 class DoctorActualizarPerfil(BaseModel):
     numero_licencia: str | None = None
     costo_consulta: float | None = Field(default=None, ge=0)
     especialidad_ids: list[int] | None = None
+    especialidades: list[EspecialidadPerfilActualizar] | None = None
 
 
 class DoctorActualizarAdmin(BaseModel):

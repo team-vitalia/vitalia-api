@@ -1,5 +1,7 @@
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import FileResponse
+from pathlib import Path
+from uuid import uuid4
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func
 
@@ -100,61 +102,82 @@ def guardar_especialidades(
     doctor: Doctor,
     especialidad_ids: list[int]
 ):
+    """
+    Actualiza las especialidades del doctor sin eliminar
+    los datos adicionales de las especialidades que conserva.
+    """
     validar_especialidades(db, especialidad_ids)
 
-    db.query(DoctorEspecialidad).filter(
-        DoctorEspecialidad.doctor_id_FK == doctor.id_PK
-    ).delete(synchronize_session=False)
-
-    for especialidad_id in especialidad_ids:
-        db.add(
-            DoctorEspecialidad(
-                doctor_id_FK=doctor.id_PK,
-                especialidad_id_FK=especialidad_id
-            )
-        )
-
-
-def serializar_doctor(db: Session, doctor: Doctor):
-    asignadas = (
-        db.query(Especialidad)
-        .join(
-            DoctorEspecialidad,
-            DoctorEspecialidad.especialidad_id_FK == Especialidad.id_PK
-        )
+    existentes = (
+        db.query(DoctorEspecialidad)
         .filter(
             DoctorEspecialidad.doctor_id_FK == doctor.id_PK
         )
-        .order_by(Especialidad.nombre)
         .all()
     )
 
-    # Compatibilidad con registros antiguos que solo tienen
-    # especialidad_id_FK y aún no usan la tabla intermedia.
-    if not asignadas and doctor.especialidad:
-        asignadas = [doctor.especialidad]
+    # Relacionar cada especialidad con su registro intermedio.
+    por_id = {
+        asignacion.especialidad_id_FK: asignacion
+        for asignacion in existentes
+    }
 
+    ids_deseados = set(especialidad_ids)
+
+    # Eliminar únicamente las especialidades que ya no fueron seleccionadas.
+    for especialidad_id, asignacion in por_id.items():
+        if especialidad_id not in ids_deseados:
+            db.delete(asignacion)
+
+    # Crear únicamente las nuevas asignaciones.
+    for especialidad_id in ids_deseados:
+        if especialidad_id not in por_id:
+            db.add(
+                DoctorEspecialidad(
+                    doctor_id_FK=doctor.id_PK,
+                    especialidad_id_FK=especialidad_id
+                )
+            )
+
+    db.flush()
+
+def serializar_doctor(db: Session, doctor: Doctor):
+    asignaciones = (
+        db.query(DoctorEspecialidad)
+        .join(Especialidad, DoctorEspecialidad.especialidad_id_FK == Especialidad.id_PK)
+        .filter(DoctorEspecialidad.doctor_id_FK == doctor.id_PK)
+        .order_by(Especialidad.nombre)
+        .all()
+    )
+    if not asignaciones and doctor.especialidad:
+        especialidades = [{
+            "id_PK": doctor.especialidad.id_PK,
+            "nombre": doctor.especialidad.nombre,
+            "cedula_profesional": None,
+            "documento_validez": None,
+        }]
+    else:
+        especialidades = [{
+            "id_PK": a.especialidad.id_PK,
+            "nombre": a.especialidad.nombre,
+            "cedula_profesional": a.cedula_profesional,
+            "documento_validez": a.documento_validez,
+        } for a in asignaciones]
+
+    usuario = doctor.usuario
     return {
         "id_PK": doctor.id_PK,
         "usuario_id_FK": doctor.usuario_id_FK,
-        "nombre": doctor.usuario.nombre if doctor.usuario else "Sin nombre",
-        "correo_electronico": (
-            doctor.usuario.correo_electronico if doctor.usuario else None
-        ),
+        "nombre": usuario.nombre if usuario else "Sin nombre",
+        "apellido_paterno": usuario.apellido_paterno if usuario else None,
+        "apellido_materno": usuario.apellido_materno if usuario else None,
+        "correo_electronico": usuario.correo_electronico if usuario else None,
+        "estado": doctor.estado,
+        "estado_usuario": usuario.estado if usuario else None,
         "numero_licencia": doctor.numero_licencia,
         "rfc": doctor.rfc,
-        "estado": doctor.estado,
-        "costo_consulta": (
-            float(doctor.costo_consulta)
-            if doctor.costo_consulta is not None else None
-        ),
-        "especialidades": [
-            {
-                "id_PK": especialidad.id_PK,
-                "nombre": especialidad.nombre
-            }
-            for especialidad in asignadas
-        ]
+        "costo_consulta": float(doctor.costo_consulta) if doctor.costo_consulta is not None else None,
+        "especialidades": especialidades,
     }
 
 
@@ -223,7 +246,9 @@ def actualizar_mi_perfil(
 
     doctor = (
         db.query(Doctor)
-        .filter(Doctor.usuario_id_FK == usuario_actual.id_PK)
+        .filter(
+            Doctor.usuario_id_FK == usuario_actual.id_PK
+        )
         .first()
     )
 
@@ -242,15 +267,25 @@ def actualizar_mi_perfil(
         )
 
     try:
+        # -----------------------------------------
+        # 1. ACTUALIZAR NÚMERO DE LICENCIA
+        # -----------------------------------------
         if "numero_licencia" in cambios:
-            licencia = cambios["numero_licencia"]
             doctor.numero_licencia = validar_licencia(
-                db, licencia, doctor.id_PK
+                db,
+                cambios["numero_licencia"],
+                doctor.id_PK
             )
 
+        # -----------------------------------------
+        # 2. ACTUALIZAR COSTO DE CONSULTA
+        # -----------------------------------------
         if "costo_consulta" in cambios:
             doctor.costo_consulta = cambios["costo_consulta"]
 
+        # -----------------------------------------
+        # 3. ACTUALIZAR ESPECIALIDADES ASIGNADAS
+        # -----------------------------------------
         if "especialidad_ids" in cambios:
             ids = cambios["especialidad_ids"]
 
@@ -260,8 +295,99 @@ def actualizar_mi_perfil(
                     detail="La lista de especialidades no puede ser nula"
                 )
 
-            guardar_especialidades(db, doctor, ids)
+            # Valida que existan y estén activas.
+            validar_especialidades(db, ids)
 
+            # Actualiza las relaciones sin perder cédulas ni documentos.
+            guardar_especialidades(
+                db,
+                doctor,
+                ids
+            )
+
+        # -----------------------------------------
+        # 4. ACTUALIZAR DATOS POR ESPECIALIDAD
+        # -----------------------------------------
+        if (
+            "especialidades" in cambios
+            and cambios["especialidades"] is not None
+        ):
+            detalles = cambios["especialidades"]
+
+            ids_detalle = [
+                item["id_PK"]
+                for item in detalles
+            ]
+
+            # Evitar especialidades repetidas.
+            if len(ids_detalle) != len(set(ids_detalle)):
+                raise HTTPException(
+                    status_code=422,
+                    detail="Hay especialidades duplicadas."
+                )
+
+            # Obtener las especialidades que pertenecen al doctor.
+            asignaciones = (
+                db.query(DoctorEspecialidad)
+                .filter(
+                    DoctorEspecialidad.doctor_id_FK == doctor.id_PK
+                )
+                .all()
+            )
+
+            por_id = {
+                asignacion.especialidad_id_FK: asignacion
+                for asignacion in asignaciones
+            }
+
+            # Compatibilidad con doctores antiguos que todavía
+            # tienen su especialidad únicamente en Doctor.
+            if not por_id and doctor.especialidad_id_FK:
+                especialidad_legacy = (
+                    db.query(Especialidad)
+                    .filter(
+                        Especialidad.id_PK == doctor.especialidad_id_FK
+                    )
+                    .first()
+                )
+
+                if especialidad_legacy:
+                    nueva_asignacion = DoctorEspecialidad(
+                        doctor_id_FK=doctor.id_PK,
+                        especialidad_id_FK=doctor.especialidad_id_FK
+                    )
+
+                    db.add(nueva_asignacion)
+                    db.flush()
+
+                    por_id[doctor.especialidad_id_FK] = nueva_asignacion
+
+            # Verificar que todas las especialidades enviadas
+            # estén realmente asignadas al doctor.
+            ids_asignados = set(por_id.keys())
+            ids_recibidos = set(ids_detalle)
+
+            if not ids_recibidos.issubset(ids_asignados):
+                raise HTTPException(
+                    status_code=403,
+                    detail=(
+                        "Solo puedes editar especialidades "
+                        "asignadas a tu perfil."
+                    )
+                )
+
+            # Actualizar los datos de cada especialidad.
+            for item in detalles:
+                especialidad_id = item["id_PK"]
+                asignacion = por_id[especialidad_id]
+
+                asignacion.cedula_profesional = (
+                    item.get("cedula_profesional") or ""
+                ).strip() or None
+
+        # -----------------------------------------
+        # 5. GUARDAR CAMBIOS
+        # -----------------------------------------
         db.commit()
         db.refresh(doctor)
 
@@ -273,12 +399,87 @@ def actualizar_mi_perfil(
     except HTTPException:
         db.rollback()
         raise
-    except Exception:
+
+    except Exception as error:
         db.rollback()
+
+        print(
+            f"Error al actualizar el perfil del doctor: {error}"
+        )
+
         raise HTTPException(
             status_code=500,
             detail="No fue posible actualizar tu perfil profesional"
         )
+
+def _obtener_doctor_actual(db: Session, usuario: Usuario) -> Doctor:
+    doctor = db.query(Doctor).filter(Doctor.usuario_id_FK == usuario.id_PK).first()
+    if not doctor:
+        raise HTTPException(status_code=404, detail="Tu usuario todavía no tiene un perfil de médico")
+    return doctor
+
+
+@router.post("/perfil/especialidades/{especialidad_id}/documento", status_code=200)
+def subir_documento_especialidad(
+    especialidad_id: int,
+    archivo: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    exigir_medico(usuario_actual)
+    doctor = _obtener_doctor_actual(db, usuario_actual)
+    asignacion = db.query(DoctorEspecialidad).filter(
+        DoctorEspecialidad.doctor_id_FK == doctor.id_PK,
+        DoctorEspecialidad.especialidad_id_FK == especialidad_id,
+    ).first()
+    if not asignacion:
+        raise HTTPException(status_code=404, detail="La especialidad no está asignada a tu perfil.")
+    if archivo.content_type not in ("application/pdf", "application/octet-stream") or not (archivo.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=415, detail="El archivo debe ser un PDF.")
+    contenido = archivo.file.read(10 * 1024 * 1024 + 1)
+    if len(contenido) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="El PDF no puede superar 10 MB.")
+    if not contenido.startswith(b"%PDF-"):
+        raise HTTPException(status_code=415, detail="El archivo seleccionado no es un PDF válido.")
+
+    carpeta = Path("storage/documentos_doctores") / str(doctor.id_PK)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    destino = carpeta / f"{especialidad_id}_{uuid4().hex}.pdf"
+    try:
+        destino.write_bytes(contenido)
+        anterior = asignacion.documento_validez
+        asignacion.documento_validez = destino.as_posix()
+        db.commit()
+        if anterior:
+            anterior_path = Path(anterior)
+            if anterior_path.exists() and anterior_path.is_file():
+                anterior_path.unlink()
+    except Exception:
+        db.rollback()
+        if destino.exists():
+            destino.unlink()
+        raise HTTPException(status_code=500, detail="No fue posible guardar el documento.")
+    return {"mensaje": "Documento cargado correctamente.", "documento_validez": asignacion.documento_validez}
+
+
+@router.get("/perfil/especialidades/{especialidad_id}/documento")
+def descargar_documento_especialidad(
+    especialidad_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user),
+):
+    exigir_medico(usuario_actual)
+    doctor = _obtener_doctor_actual(db, usuario_actual)
+    asignacion = db.query(DoctorEspecialidad).filter(
+        DoctorEspecialidad.doctor_id_FK == doctor.id_PK,
+        DoctorEspecialidad.especialidad_id_FK == especialidad_id,
+    ).first()
+    if not asignacion or not asignacion.documento_validez:
+        raise HTTPException(status_code=404, detail="No hay documento de validez registrado.")
+    ruta = Path(asignacion.documento_validez)
+    if not ruta.exists() or not ruta.is_file():
+        raise HTTPException(status_code=404, detail="El documento ya no está disponible.")
+    return FileResponse(ruta, media_type="application/pdf", filename="documento_validez.pdf")
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)

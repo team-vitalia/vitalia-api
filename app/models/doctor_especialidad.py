@@ -1,5 +1,4 @@
-
-from sqlalchemy import ForeignKey
+from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.connection import Base
@@ -17,6 +16,10 @@ class DoctorEspecialidad(Base):
         ForeignKey("doctores.id_PK"),
         nullable=False
     )
+
+    cedula_profesional: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    documento_validez: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     especialidad_id_FK: Mapped[int] = mapped_column(
         ForeignKey("especialidades.id_PK"),
