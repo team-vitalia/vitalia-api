@@ -222,6 +222,7 @@ class UsuarioResponse(BaseModel):
 
 
 class UsuarioActualizar(BaseModel):
+    # Datos generales de la cuenta
     nombre: str | None = None
     apellido_paterno: str | None = None
     apellido_materno: str | None = None
@@ -229,3 +230,39 @@ class UsuarioActualizar(BaseModel):
     telefono: str | None = None
     rol_id_FK: int | None = None
     estado: str | None = None
+
+    # Datos adicionales del perfil de paciente
+    curp: str | None = None
+    fecha_nacimiento: date | None = None
+    genero: str | None = None
+    direccion: str | None = None
+
+    @field_validator("curp")
+    @classmethod
+    def _validar_curp_actualizacion(cls, v: str | None) -> str | None:
+        v = _opcional(v)
+        return validar_curp(v) if v else None
+
+    @field_validator("fecha_nacimiento")
+    @classmethod
+    def _validar_fecha_actualizacion(cls, v: date | None) -> date | None:
+        if v is None:
+            return None
+        if v > date.today():
+            raise ValueError("La fecha de nacimiento no puede ser futura")
+        if v < FECHA_NACIMIENTO_MINIMA:
+            raise ValueError("La fecha de nacimiento no es válida")
+        return v
+
+    @field_validator("genero")
+    @classmethod
+    def _validar_genero_actualizacion(cls, v: str | None) -> str | None:
+        v = _opcional(v)
+        if v is not None and v not in GENEROS_VALIDOS:
+            raise ValueError("El género debe ser Femenino, Masculino u Otro")
+        return v
+
+    @field_validator("direccion")
+    @classmethod
+    def _limpiar_direccion_actualizacion(cls, v: str | None) -> str | None:
+        return _opcional(v)

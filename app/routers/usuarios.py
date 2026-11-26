@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from app.core.dependencies import get_current_user
 from app.core.security import generar_hash_password
@@ -8,6 +9,7 @@ from app.core.validaciones import (
     componer_apellido,
     normalizar_correo,
     validar_nombre_persona,
+    fecha_nacimiento_de_curp,
 )
 from app.database.connection import get_db
 from app.models.doctor import Doctor
@@ -37,6 +39,29 @@ router = APIRouter(
     prefix="/api/usuarios",
     tags=["Usuarios"]
 )
+
+
+def _perfil_paciente(db: Session, usuario_id: int) -> dict:
+    ficha = (
+        db.query(Paciente)
+        .filter(Paciente.usuario_id_FK == usuario_id)
+        .first()
+    )
+    if not ficha:
+        return {
+            "paciente_id": None,
+            "curp": None,
+            "fecha_nacimiento": None,
+            "genero": None,
+            "direccion": None,
+        }
+    return {
+        "paciente_id": ficha.id_PK,
+        "curp": ficha.curp,
+        "fecha_nacimiento": ficha.fecha_nacimiento,
+        "genero": ficha.genero,
+        "direccion": ficha.direccion,
+    }
 
 
 @router.get("/")
@@ -106,7 +131,8 @@ def obtener_usuarios(
             "numero_licencia": perfil_doctor.get(usuario.id_PK, {}).get("numero_licencia"),
             "rfc": perfil_doctor.get(usuario.id_PK, {}).get("rfc"),
             "costo_consulta": perfil_doctor.get(usuario.id_PK, {}).get("costo_consulta"),
-            "especialidades": perfil_doctor.get(usuario.id_PK, {}).get("especialidades", [])
+            "especialidades": perfil_doctor.get(usuario.id_PK, {}).get("especialidades", []),
+            **_perfil_paciente(db, usuario.id_PK),
         }
         for usuario in usuarios
     ]
@@ -136,7 +162,44 @@ def obtener_usuario_por_id(
             detail="El usuario no existe"
         )
 
-    return usuario
+    doctor = (
+        db.query(Doctor)
+        .filter(Doctor.usuario_id_FK == usuario.id_PK)
+        .first()
+    )
+    especialidades = []
+    if doctor:
+        filas = (
+            db.query(Especialidad)
+            .join(DoctorEspecialidad, DoctorEspecialidad.especialidad_id_FK == Especialidad.id_PK)
+            .filter(DoctorEspecialidad.doctor_id_FK == doctor.id_PK)
+            .order_by(Especialidad.nombre)
+            .all()
+        )
+        if not filas and doctor.especialidad:
+            filas = [doctor.especialidad]
+        especialidades = [{"id_PK": e.id_PK, "nombre": e.nombre} for e in filas]
+
+    return {
+        "id_PK": usuario.id_PK,
+        "clinica_id_FK": usuario.clinica_id_FK,
+        "nombre": usuario.nombre,
+        "apellido_paterno": usuario.apellido_paterno,
+        "apellido_materno": usuario.apellido_materno,
+        "correo_electronico": usuario.correo_electronico,
+        "telefono": usuario.telefono,
+        "rol_id_FK": usuario.rol_id_FK,
+        "rol": usuario.rol.nombre if usuario.rol else None,
+        "estado": usuario.estado,
+        "creado_en": usuario.creado_en,
+        "ultimo_acceso": usuario.ultimo_acceso,
+        "doctor_id": doctor.id_PK if doctor else None,
+        "numero_licencia": doctor.numero_licencia if doctor else None,
+        "rfc": doctor.rfc if doctor else None,
+        "costo_consulta": float(doctor.costo_consulta) if doctor and doctor.costo_consulta is not None else None,
+        "especialidades": especialidades,
+        **_perfil_paciente(db, usuario.id_PK),
+    }
 
 
 @router.post(
@@ -410,9 +473,65 @@ def actualizar_usuario(
                         )
                     )
 
+    ficha_paciente = None
+    if usuario.rol_id_FK == ROL_PACIENTE:
+        ficha_paciente = (
+            db.query(Paciente)
+            .filter(Paciente.usuario_id_FK == usuario.id_PK)
+            .first()
+        )
+        if not ficha_paciente:
+            raise HTTPException(
+                status_code=409,
+                detail="La cuenta de paciente no tiene una ficha clínica asociada"
+            )
+
+        curp_final = cambios.get("curp", ficha_paciente.curp)
+        fecha_final = cambios.get("fecha_nacimiento", ficha_paciente.fecha_nacimiento)
+
+        if "curp" in cambios and not cambios["curp"]:
+            raise HTTPException(status_code=422, detail="La CURP es obligatoria para pacientes")
+        if "fecha_nacimiento" in cambios and not cambios["fecha_nacimiento"]:
+            raise HTTPException(status_code=422, detail="La fecha de nacimiento es obligatoria para pacientes")
+        if "genero" in cambios and not cambios["genero"]:
+            raise HTTPException(status_code=422, detail="El género es obligatorio para pacientes")
+
+        if curp_final and fecha_final and fecha_nacimiento_de_curp(curp_final) != fecha_final:
+            raise HTTPException(
+                status_code=422,
+                detail="La fecha de nacimiento no coincide con la de la CURP"
+            )
+
+        if "curp" in cambios and cambios["curp"]:
+            duplicada = (
+                db.query(Paciente)
+                .filter(
+                    Paciente.curp == cambios["curp"],
+                    Paciente.id_PK != ficha_paciente.id_PK
+                )
+                .first()
+            )
+            if duplicada:
+                raise HTTPException(status_code=409, detail="La CURP ya está registrada")
+
     try:
         for campo, valor in cambios.items():
-            setattr(usuario, campo, valor)
+            if campo not in {"curp", "fecha_nacimiento", "genero", "direccion"}:
+                setattr(usuario, campo, valor)
+
+        if ficha_paciente:
+            ficha_paciente.nombre = usuario.nombre
+            ficha_paciente.apellido_paterno = usuario.apellido_paterno
+            ficha_paciente.apellido_materno = usuario.apellido_materno
+            ficha_paciente.apellido = componer_apellido(
+                usuario.apellido_paterno,
+                usuario.apellido_materno
+            )
+            ficha_paciente.correo_electronico = usuario.correo_electronico
+            ficha_paciente.telefono = usuario.telefono
+            for campo in ("curp", "fecha_nacimiento", "genero", "direccion"):
+                if campo in cambios:
+                    setattr(ficha_paciente, campo, cambios[campo])
 
         if (
             usuario.rol_id_FK == ROL_PACIENTE
@@ -456,3 +575,88 @@ def actualizar_usuario(
         "creado_en": usuario.creado_en,
         "ultimo_acceso": usuario.ultimo_acceso
     }
+
+@router.delete("/{usuario_id}", status_code=status.HTTP_200_OK)
+def eliminar_usuario(
+    usuario_id: int,
+    db: Session = Depends(get_db),
+    usuario_actual: Usuario = Depends(get_current_user)
+):
+    """Elimina cuentas administrativas/no clínicas; protege doctores y pacientes."""
+    if usuario_actual.rol_id_FK not in [ROL_ADMIN, ROL_COORDINADOR]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el administrador o coordinador pueden eliminar usuarios"
+        )
+
+    query = db.query(Usuario).filter(Usuario.id_PK == usuario_id)
+    clinica_id = getattr(usuario_actual, "clinica_id_FK", None)
+    if clinica_id is not None:
+        query = query.filter(Usuario.clinica_id_FK == clinica_id)
+    objetivo = query.first()
+
+    if not objetivo:
+        raise HTTPException(status_code=404, detail="El usuario no existe")
+
+    if objetivo.id_PK == usuario_actual.id_PK:
+        raise HTTPException(status_code=400, detail="No puedes eliminar tu propia cuenta")
+
+    if objetivo.rol_id_FK in [2, 3]:
+        raise HTTPException(
+            status_code=409,
+            detail="No se pueden eliminar usuarios con rol de doctor o paciente"
+        )
+
+    tiene_perfil_doctor = (
+        db.query(Doctor.id_PK)
+        .filter(Doctor.usuario_id_FK == objetivo.id_PK)
+        .first()
+        is not None
+    )
+    tiene_perfil_paciente = (
+        db.query(Paciente.id_PK)
+        .filter(Paciente.usuario_id_FK == objetivo.id_PK)
+        .first()
+        is not None
+    )
+    if tiene_perfil_doctor or tiene_perfil_paciente:
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede eliminar una cuenta que conserva un perfil clínico de doctor o paciente"
+        )
+
+    if (
+        usuario_actual.rol_id_FK == ROL_COORDINADOR
+        and objetivo.rol_id_FK in [ROL_ADMIN, ROL_COORDINADOR]
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="El coordinador no puede eliminar administradores ni coordinadores"
+        )
+
+    if objetivo.rol_id_FK == ROL_ADMIN:
+        admins = db.query(Usuario).filter(Usuario.rol_id_FK == ROL_ADMIN)
+        if clinica_id is not None:
+            admins = admins.filter(Usuario.clinica_id_FK == clinica_id)
+        if admins.count() <= 1:
+            raise HTTPException(
+                status_code=409,
+                detail="No puedes eliminar al último administrador de la clínica"
+            )
+
+    try:
+        db.delete(objetivo)
+        db.commit()
+        return {"mensaje": "Usuario eliminado correctamente", "id_PK": usuario_id}
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="No se puede eliminar este usuario porque tiene registros relacionados"
+        )
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="No fue posible eliminar el usuario"
+        )
