@@ -54,6 +54,14 @@ def asegurar_esquema_y_seeds(engine: Engine, session_factory) -> None:
                     conn.execute(text("UPDATE pacientes SET creado_en = NOW() WHERE creado_en IS NULL"))
                     conn.commit()
 
+            if "doctor_especialidades" in tablas:
+                cols_de = [c["name"] for c in insp.get_columns("doctor_especialidades")]
+                if "cedula_profesional" not in cols_de:
+                    conn.execute(text("ALTER TABLE doctor_especialidades ADD COLUMN cedula_profesional VARCHAR(100) NULL DEFAULT NULL"))
+                if "documento_validez" not in cols_de:
+                    conn.execute(text("ALTER TABLE doctor_especialidades ADD COLUMN documento_validez VARCHAR(500) NULL DEFAULT NULL"))
+                conn.commit()
+
             if "avisos_superadmin" not in tablas and "clinicas" in tablas:
                 conn.execute(text(
                     "CREATE TABLE avisos_superadmin ("

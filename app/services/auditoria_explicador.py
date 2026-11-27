@@ -24,7 +24,7 @@ TIPOS_ACCION = {
     "estado": {"etiqueta": "Cambió un estado", "codigos": ["UPDATE_ESTADO"], "tono": "info", "icono": "swap-horizontal-outline"},
     "eliminar": {"etiqueta": "Eliminó", "codigos": ["DELETE", "ELIMINAR"], "tono": "danger", "icono": "trash-outline"},
     "consultar": {"etiqueta": "Consultó", "codigos": ["CONSULTAR"], "tono": "neutral", "icono": "eye-outline"},
-    "sala": {"etiqueta": "Reservó / cambió sala", "codigos": ["ASIGNAR_SALA", "CAMBIAR_SALA"], "tono": "ok", "icono": "business-outline"},
+    "sala": {"etiqueta": "Reservó / cambió sala", "codigos": ["ASIGNAR_SALA", "CAMBIAR_SALA", "ASIGNAR_SALA_DOCTOR", "MOVER_SALA_DOCTOR", "QUITAR_SALA_DOCTOR"], "tono": "ok", "icono": "business-outline"},
     "ia": {"etiqueta": "Usó el asistente IA", "codigos": ["CONSULTA_ASISTENTE_IA"], "tono": "info", "icono": "sparkles-outline"},
 }
 CODIGO_A_TIPO = {c: k for k, v in TIPOS_ACCION.items() for c in v["codigos"]}
@@ -206,6 +206,21 @@ def _explicar_uno(reg: RegistroAuditoria, ctx: _Contexto) -> dict:
             texto = f"Se modificó el equipo «{nombre}»{donde}: {frase_cambios(antiguos, nuevos)}"
             if nuevos.get("estado") == "fuera_de_servicio":
                 tono = "warn"
+    # --- Sala asignada a un doctor (calendario de salas)
+    elif tabla == "doctor_salas":
+        a_, n_ = antiguos, nuevos
+        def _cuando(d):
+            dia = d.get("dia")
+            pref = "todos los días" if dia in (None, "todos los días") else f"el {str(dia).lower()}"
+            return f"{pref} de {d.get('hora_inicio', '--:--')} a {d.get('hora_fin', '--:--')}"
+        if codigo == "ASIGNAR_SALA_DOCTOR":
+            texto = f"Se asignó la sala «{n_.get('sala', '—')}» al doctor {n_.get('doctor', '—')} {_cuando(n_)}"
+        elif codigo == "MOVER_SALA_DOCTOR":
+            texto = (f"Se cambió la asignación de {n_.get('doctor', '—')}: antes «{a_.get('sala', '—')}» {_cuando(a_)}, "
+                     f"ahora «{n_.get('sala', '—')}» {_cuando(n_)}")
+        else:
+            texto = f"Se quitó la sala «{a_.get('sala', '—')}» al doctor {a_.get('doctor', '—')} ({_cuando(a_)})"
+            tono = "warn"
     # --- Uso de salas en citas
     elif tipo == "sala":
         sala = ctx.salas.get(_entero(nuevos.get("sala_id_FK")) or 0) or "una sala"

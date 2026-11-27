@@ -15,11 +15,23 @@ branch_labels = None
 depends_on = None
 
 
+def _columnas() -> set[str]:
+    insp = sa.inspect(op.get_bind())
+    return {c["name"] for c in insp.get_columns("doctor_especialidades")}
+
+
 def upgrade() -> None:
-    op.add_column("doctor_especialidades", sa.Column("cedula_profesional", sa.String(length=100), nullable=True))
-    op.add_column("doctor_especialidades", sa.Column("documento_validez", sa.String(length=500), nullable=True))
+    # Idempotente: verificar_esquema.py también puede haber creado estas columnas al arrancar la API.
+    columnas = _columnas()
+    if "cedula_profesional" not in columnas:
+        op.add_column("doctor_especialidades", sa.Column("cedula_profesional", sa.String(length=100), nullable=True))
+    if "documento_validez" not in columnas:
+        op.add_column("doctor_especialidades", sa.Column("documento_validez", sa.String(length=500), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("doctor_especialidades", "documento_validez")
-    op.drop_column("doctor_especialidades", "cedula_profesional")
+    columnas = _columnas()
+    if "documento_validez" in columnas:
+        op.drop_column("doctor_especialidades", "documento_validez")
+    if "cedula_profesional" in columnas:
+        op.drop_column("doctor_especialidades", "cedula_profesional")

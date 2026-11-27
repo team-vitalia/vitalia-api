@@ -11,24 +11,16 @@ sys.path.append(
     str(Path(__file__).resolve().parents[1])
 )
 
-from dotenv import load_dotenv
-import os
-
-load_dotenv()
-
-DATABASE_URL = (
-    f"mysql+pymysql://"
-    f"{os.getenv('DB_USER')}:"
-    f"{os.getenv('DB_PASSWORD')}@"
-    f"{os.getenv('DB_HOST')}:"
-    f"{os.getenv('DB_PORT')}/"
-    f"{os.getenv('DB_NAME')}"
-)
+# Misma URL que usa la API (app/database/connection.py): acepta DATABASE_URL o
+# DB_USER/DB_PASSWORD/DB_HOST/DB_PORT/DB_NAME, con valores por defecto.
+# Así Alembic y la app nunca apuntan a bases de datos distintas.
+from app.database.connection import DATABASE_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# configparser interpreta «%»: se escapa por si la contraseña lo contiene.
+config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
