@@ -1,8 +1,8 @@
-from datetime import time
+from datetime import date, time
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
@@ -19,6 +19,7 @@ from app.schemas.doctor_sala import (
     AsignacionSalaOut,
     ValidacionAsignacionOut,
 )
+from app.services import asignacion_salas_export
 from app.services.asignacion_salas_service import AsignacionSalasService
 
 router = APIRouter(prefix="/api/doctor-salas", tags=["Salas de doctores"])
@@ -153,6 +154,35 @@ def calendario(
     if actual.rol_id_FK not in ROLES_CONSULTA:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Permisos insuficientes")
     return _servicio(db, actual).calendario(sala_id=sala_id, doctor_id=doctor_id)
+
+
+MIME_EXPORT = {
+    "pdf": "application/pdf",
+    "excel": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
+
+@router.get("/resumen/exportar")
+def exportar_resumen(
+    formato: str = Query("excel", pattern="^(excel|pdf)$"),
+    semana_inicio: Optional[date] = Query(None, description="Lunes de la semana que se está viendo (solo rotula las fechas)"),
+    db: Session = Depends(get_db),
+    actual: Usuario = Depends(get_current_user),
+):
+    """Descarga el resumen de asignación de salas (todas las salas y doctores de la clínica) en Excel o PDF."""
+    _exigir_gestion(actual)
+    datos = _servicio(db, actual).resumen_exportable()
+    clinica = getattr(actual, "clinica", None)
+    nombre = str(getattr(clinica, "nombre_comercial", None) or "Clínica VITALIA")
+    if formato == "pdf":
+        contenido, ext = asignacion_salas_export.a_pdf(datos, nombre, semana_inicio), "pdf"
+    else:
+        contenido, ext = asignacion_salas_export.a_excel(datos, nombre, semana_inicio), "xlsx"
+    return Response(
+        content=contenido,
+        media_type=MIME_EXPORT[formato],
+        headers={"Content-Disposition": f'attachment; filename="resumen_asignacion_salas.{ext}"'},
+    )
 
 
 @router.post("/asignaciones/validar", response_model=ValidacionAsignacionOut)

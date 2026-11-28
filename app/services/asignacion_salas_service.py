@@ -252,6 +252,27 @@ class AsignacionSalasService:
         return True, avisado
 
     # ------------------------------------------------------------ calendario
+    def resumen_exportable(self) -> dict:
+        """Datos para el Excel/PDF de resumen: salas, doctores activos y todas las asignaciones de la clínica."""
+        qs = self.db.query(Sala)
+        if self.clinica_id is not None:
+            qs = qs.filter(Sala.clinica_id_FK == self.clinica_id)
+        salas = [{"id": s.id_PK, "nombre": s.nombre, "tipo": s.tipo, "piso": s.piso, "estado": s.estado} for s in qs.order_by(Sala.nombre).all()]
+
+        qd = self.db.query(Doctor, Usuario).join(Usuario, Usuario.id_PK == Doctor.usuario_id_FK).filter(Doctor.estado == "activo")
+        if self.clinica_id is not None:
+            qd = qd.filter(Usuario.clinica_id_FK == self.clinica_id)
+        doctores = []
+        for d, u in qd.all():
+            partes = [u.nombre, getattr(u, "apellido_paterno", None), getattr(u, "apellido_materno", None)]
+            doctores.append({
+                "id": d.id_PK,
+                "nombre": " ".join(p for p in partes if p),
+                "especialidad": getattr(getattr(d, "especialidad", None), "nombre", None),
+            })
+        doctores.sort(key=lambda x: x["nombre"].lower())
+        return {"salas": salas, "doctores": doctores, "asignaciones": self.calendario()}
+
     def calendario(self, sala_id: int | None = None, doctor_id: int | None = None) -> list[dict]:
         q = (
             self.db.query(DoctorSala, Sala, Doctor, Usuario)
